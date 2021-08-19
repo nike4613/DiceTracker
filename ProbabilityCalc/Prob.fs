@@ -67,4 +67,9 @@ let inline map f sv =
     | Sequence s -> Seq.map f s |> (!->)
     | _ -> raise(exn("Cannot apply map to a non-sequence"))
 
-let output (name: string) (value: ProbabiltyValue) = {| name = name ; value = value |}
+type OutputValue =
+    | NamedOutput of string * ProbabiltyValue
+    | UnnamedOutput of ProbabiltyValue
+
+let output value = UnnamedOutput value
+let output_named name value = NamedOutput(name, value)

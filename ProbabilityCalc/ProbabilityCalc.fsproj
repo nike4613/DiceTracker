@@ -7,7 +7,7 @@
 
   <ItemGroup>
     <Compile Include="Prob.fs" />
-    <Compile Include="ProcessProb.fs" />
+    <Compile Include="Processing.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

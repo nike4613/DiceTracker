@@ -5,9 +5,9 @@ open Prob
 let rollsingle skill = 
     let roll = d 12 |> toProb
     let modified = roll + skill
-    condb (roll == 12)
+    condb (roll =. 12)
         (Literal true)
-        (condb (roll == 1)
+        (condb (roll =. 1)
             (Literal false)
             (modified >. 7))
 
@@ -29,6 +29,6 @@ let calcProb =
 
 [<EntryPoint>]
 let main argv =
-    !. (pool 12 4) |> ignore
-    calcProb |> Seq.iter (printfn "%O")
+    let results = calcProb |> Processing.processMany
+    results.SaveToString() |> printfn "%s"
     0 // return an integer exit code

@@ -1,16 +1,16 @@
 ﻿
 module Prob
 
-type ProbabiltyValue =
+type ProbabilityValue =
     | DieValue of Die
     //| DicePool of DicePool
     | Number of int
     //| Sequence of ProbabiltyValue seq
-    | Sum of ProbabiltyValue * ProbabiltyValue
-    | Difference of ProbabiltyValue * ProbabiltyValue
-    | Multiply of ProbabiltyValue * ProbabiltyValue
-    | Divide of ProbabiltyValue * ProbabiltyValue
-    | Condition of BooleanValue * ProbabiltyValue * ProbabiltyValue
+    | Sum of ProbabilityValue * ProbabilityValue
+    | Difference of ProbabilityValue * ProbabilityValue
+    | Multiply of ProbabilityValue * ProbabilityValue
+    | Divide of ProbabilityValue * ProbabilityValue
+    | Condition of BooleanValue * ProbabilityValue * ProbabilityValue
     //| ValueMatch of ProbabiltyValue * (int * ProbabiltyValue) list
     static member inline (+) (a, b) = Sum (a, b)
     static member inline (-) (a, b) = Difference (a, b)
@@ -30,12 +30,12 @@ type ProbabiltyValue =
 and BooleanValue =
     | Literal of bool
     | BoolCondition of BooleanValue * BooleanValue * BooleanValue
-    | Equals of ProbabiltyValue * int
-    | NotEquals of ProbabiltyValue * int
-    | GreaterThan of ProbabiltyValue * int
-    | LessThan of ProbabiltyValue * int
-    | GreaterThanEqual of ProbabiltyValue * int
-    | LessThanEqual of ProbabiltyValue * int
+    | Equals of ProbabilityValue * int
+    | NotEquals of ProbabilityValue * int
+    | GreaterThan of ProbabilityValue * int
+    | LessThan of ProbabilityValue * int
+    | GreaterThanEqual of ProbabilityValue * int
+    | LessThanEqual of ProbabilityValue * int
     | BoolNot of BooleanValue
     | BoolAnd of BooleanValue * BooleanValue
     | BoolOr of BooleanValue * BooleanValue
@@ -69,7 +69,7 @@ and Die(size: int) =
     { dice : Die ; count : int }
     static member inline (!.) d = DicePool d*)
 
-let inline toProb value : ProbabiltyValue = !. value
+let inline toProb value : ProbabilityValue = !. value
 
 let inline (!>) (value: int) = Number value
 //let inline (!->) seq = Sequence seq
@@ -90,8 +90,8 @@ let inline map f sv =
     *)
 
 type OutputValue =
-    | NamedOutput of string * ProbabiltyValue
-    | UnnamedOutput of ProbabiltyValue
+    | NamedOutput of string * ProbabilityValue
+    | UnnamedOutput of ProbabilityValue
 
 let output value = UnnamedOutput value
 let outputName name value = NamedOutput(name, value)

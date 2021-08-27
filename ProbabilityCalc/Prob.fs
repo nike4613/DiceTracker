@@ -2,7 +2,7 @@
 module Prob
 
 type ProbabiltyValue =
-    | Die of Die
+    | DieValue of Die
     | DicePool of DicePool
     | Number of int
     | Sequence of ProbabiltyValue seq
@@ -46,9 +46,9 @@ and BooleanValue =
         | _ -> BoolNot bval
     static member inline (!.) bval = Condition(bval, Number 1, Number 0)
     
-and Die =
-    { size : int }
-    static member inline (!.) d = Die d
+and Die(size: int) =
+    member _.Size = size
+    static member inline (!.) d = DieValue d
     static member inline (*) (count, d) = { dice = d ; count = count }
 
 and DicePool =
@@ -61,7 +61,7 @@ let inline (!>) (value: int) = Number value
 let inline (!->) seq = Sequence seq
 let inline (!.>) seq = !-> (seq |> Seq.map (fun x -> !. x))
 let inline (!>>) seq = !-> (seq |> Seq.map (fun x -> !> x))
-let inline d size = { size = size }
+let inline d size = new Die(size)
 let inline pool size count = count * (d size)
 
 let inline cond c t f = Condition(c, t, f)
@@ -78,4 +78,4 @@ type OutputValue =
     | UnnamedOutput of ProbabiltyValue
 
 let output value = UnnamedOutput value
-let output_named name value = NamedOutput(name, value)
+let outputName name value = NamedOutput(name, value)

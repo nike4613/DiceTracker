@@ -23,7 +23,8 @@ let calcProb =
     seq {
         for attr in 1..8 do
             for skill in 0..5 do
-                rolldiff attr !>skill 3 |> toProb |> output
+                rolldiff attr !>skill 3 |> toProb 
+                |> outputName (sprintf "attr %o skill %o" attr skill)
     }
 
 [<EntryPoint>]

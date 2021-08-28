@@ -79,11 +79,14 @@ module private Internal =
         member this.evaluateBoolsC value = this.GetOrAddBool value (this.evaluateBools >> Seq.cache)
 
     let processWithName (cache: CachingEvaluator) name prob : OutputCsv.Row seq =
-        cache.evaluateStatesC prob
-        |> Seq.map (fun s -> s.realValue)
-        |> Seq.distinct
-        |> Seq.map (fun v -> OutputCsv.Row(name, v, 0, 0.))
-        |> Seq.toList :> seq<_>
+        let values = 
+            cache.evaluateStatesC prob
+            |> Seq.map (fun s -> s.realValue) 
+            |> Seq.fold (fun m v -> Map.change v (Option.orElse (Some 0) >> Option.map ((+) 1)) m) Map.empty
+        let total = Map.toSeq values |> Seq.sumBy snd
+        Map.toSeq values
+        |> Seq.map (fun (v, c) -> OutputCsv.Row(name, v, c, (float c) / (float total)))
+
 
 let private makeCsv data = new OutputCsv(data)
 

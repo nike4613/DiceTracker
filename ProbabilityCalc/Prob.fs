@@ -1,15 +1,8 @@
 ﻿
 module Prob
 
-type BindingIdentity() =
-    override a.ToString() = $"{a.GetHashCode()}"
-    override a.Equals(b) = obj.ReferenceEquals(a, b)
-    override a.GetHashCode() = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a)
-    interface System.IComparable with
-        member a.CompareTo(other) =
-            match other with 
-            | :? BindingIdentity as b -> (a.GetHashCode()).CompareTo(b.GetHashCode())
-            | _ -> -1
+open System
+open System.Threading
 
 type ProbabilityValue =
     | DieValue of Die
@@ -21,8 +14,8 @@ type ProbabilityValue =
     | Divide of ProbabilityValue * ProbabilityValue
     | Condition of BooleanValue * ProbabilityValue * ProbabilityValue
     | FunctionCall of Function * ProbabilityValue list
-    | Binding of BindingIdentity * ProbabilityValue * ProbabilityValue
-    | BoundValue of BindingIdentity
+    | Binding of int * ProbabilityValue * ProbabilityValue
+    | BoundValue of int
 
     static member inline (+) (a, b) = Sum (a, b)
     static member inline (-) (a, b) = Difference (a, b)
@@ -64,8 +57,18 @@ and BooleanValue =
 
     static member inline (!.) bval = Condition(bval, Number 1, Number 0)
     
-and Function = { value : ProbabilityValue }
-and BoolFunction = { value : BooleanValue }
+and Function =
+    { value : ProbabilityValue ; name : string option }
+    override this.ToString() =
+        match this.name with
+        | Some n -> $"{{ name = {n} }}"
+        | None -> $"{{ value = {this.value} }}"
+and BoolFunction =
+    { value : BooleanValue ; name : string option }
+    override this.ToString() =
+        match this.name with
+        | Some n -> $"{{ name = {n} }}"
+        | None -> $"{{ value = {this.value} }}"
     
 and Die =
     { size : int }
@@ -75,8 +78,11 @@ and Die =
 let inline toProb value : ProbabilityValue = !. value
 let Arg = Argument
 
-let func (args: ProbabilityValue list) result = FunctionCall({ value = result }, args)
-let funcb (args: ProbabilityValue list) result = BoolFunctionCall({ value = result }, args)
+let func (args: ProbabilityValue list) result = FunctionCall({ value = result ; name = None }, args)
+let funcb (args: ProbabilityValue list) result = BoolFunctionCall({ value = result ; name = None }, args)
+
+let funcn name (args: ProbabilityValue list) result = FunctionCall({ value = result ; name = Some name }, args)
+let funcnb name (args: ProbabilityValue list) result = BoolFunctionCall({ value = result ; name = Some name }, args)
 
 let inline (!>) (value: int) = Number value
 let inline d size = { size = size }
@@ -85,16 +91,31 @@ let inline pool size count = count * (d size)
 let inline cond c t f = Condition(c, t, f)
 let inline condb c t f = BoolCondition(c, t, f)
 
+type private FunctionBinder() =
+    let mutable id = 0
+    member _.GetNextId() =
+        let result = id
+        id <- id + 1
+        result
+
 // TODO: find a way to make invocations of a function not distinct
 type ProbabilityBuilder() =
+    let mutable thisBinder : ThreadLocal<FunctionBinder option> = new ThreadLocal<_>(fun () -> None)
     member _.Bind(binding, boundFunc) =
-        let bind = BindingIdentity()
-        Binding(bind, binding, boundFunc (BoundValue bind))
+        let binder = Option.get thisBinder.Value
+        let id = binder.GetNextId()
+        Binding(id, binding, boundFunc (BoundValue id))
+        // TODO: make a Bind equivalent for booleans
     member inline _.Return(v) = toProb v
     member inline _.ReturnFrom(v) = v
 
-    //member _.Delay(f) = f()
-    //member _.Run(v) = v
+    member _.Delay(f) : unit -> 'a = f
+    member _.Run(f) =
+        let prev = thisBinder.Value
+        thisBinder.Value <- Some (FunctionBinder())
+        let result = f ()
+        thisBinder.Value <- prev
+        result
 
 let prob = ProbabilityBuilder()
 

@@ -92,7 +92,7 @@ module private Internal =
         | Multiply(a, b) -> binary a b
         | Divide(a, b) -> binary a b
         | Condition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInInt a |> getFunctionsInInt b
-        | FunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (Set.add (IntFunc func) existing) |> getFunctionsInInt func.value
+        | FunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (IntFunc func :: existing) |> getFunctionsInInt func.value
         | Binding(_, binding, value) -> existing |> getFunctionsInInt binding |> getFunctionsInInt value
         | Number _ -> existing
         | Argument _ -> existing
@@ -113,10 +113,10 @@ module private Internal =
         | BoolAnd(a, b) -> binaryb a b
         | BoolOr(a, b) -> binaryb a b
         | BoolCondition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInBool a |> getFunctionsInBool b
-        | BoolFunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (Set.add (BoolFunc func) existing) |> getFunctionsInBool func.value
+        | BoolFunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (BoolFunc func :: existing) |> getFunctionsInBool func.value
 
     let processWithName name prob =
-        getFunctionsInInt prob Set.empty |> Seq.iteri (printfn "'%s'[%o] = %O" name)
+        getFunctionsInInt prob [] |> List.distinct |> Seq.iteri (printfn "'%s'[%o] = %O" name)
         Seq.empty
 
 

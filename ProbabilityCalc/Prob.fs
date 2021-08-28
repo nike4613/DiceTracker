@@ -1,17 +1,29 @@
 ﻿
 module Prob
 
+type BindingIdentity() =
+    override a.ToString() = $"{a.GetHashCode()}"
+    override a.Equals(b) = obj.ReferenceEquals(a, b)
+    override a.GetHashCode() = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a)
+    interface System.IComparable with
+        member a.CompareTo(other) =
+            match other with 
+            | :? BindingIdentity as b -> (a.GetHashCode()).CompareTo(b.GetHashCode())
+            | _ -> -1
+
 type ProbabilityValue =
     | DieValue of Die
-    //| DicePool of DicePool
     | Number of int
-    //| Sequence of ProbabiltyValue seq
+    | Argument of int
     | Sum of ProbabilityValue * ProbabilityValue
     | Difference of ProbabilityValue * ProbabilityValue
     | Multiply of ProbabilityValue * ProbabilityValue
     | Divide of ProbabilityValue * ProbabilityValue
     | Condition of BooleanValue * ProbabilityValue * ProbabilityValue
-    //| ValueMatch of ProbabiltyValue * (int * ProbabiltyValue) list
+    | FunctionCall of Function * ProbabilityValue list
+    | Binding of BindingIdentity * ProbabilityValue * ProbabilityValue
+    | BoundValue of BindingIdentity
+
     static member inline (+) (a, b) = Sum (a, b)
     static member inline (-) (a, b) = Difference (a, b)
     static member inline (*) (a, b) = Multiply (a, b)
@@ -30,64 +42,61 @@ type ProbabilityValue =
 and BooleanValue =
     | Literal of bool
     | BoolCondition of BooleanValue * BooleanValue * BooleanValue
-    | Equals of ProbabilityValue * int
-    | NotEquals of ProbabilityValue * int
-    | GreaterThan of ProbabilityValue * int
-    | LessThan of ProbabilityValue * int
-    | GreaterThanEqual of ProbabilityValue * int
-    | LessThanEqual of ProbabilityValue * int
+    | Equals of ProbabilityValue * ProbabilityValue
+    | NotEquals of ProbabilityValue * ProbabilityValue
+    | GreaterThan of ProbabilityValue * ProbabilityValue
+    | LessThan of ProbabilityValue * ProbabilityValue
+    | GreaterThanEqual of ProbabilityValue * ProbabilityValue
+    | LessThanEqual of ProbabilityValue * ProbabilityValue
     | BoolNot of BooleanValue
     | BoolAnd of BooleanValue * BooleanValue
     | BoolOr of BooleanValue * BooleanValue
+    | BoolFunctionCall of BoolFunction * ProbabilityValue list
+
     static member inline (!) bval =
         match bval with
         | Equals(v, i) -> NotEquals(v, i)
         | NotEquals(v, i) -> Equals(v, i)
         | _ -> BoolNot bval
+        
+    static member inline (&&.) (a, b) = BoolAnd(a, b)
+    static member inline (||.) (a, b) = BoolOr(a, b)
+
     static member inline (!.) bval = Condition(bval, Number 1, Number 0)
     
-and Die(size: int) =
-    member _.Size = size
+and Function = { value : ProbabilityValue }
+and BoolFunction = { value : BooleanValue }
+    
+and Die =
+    { size : int }
     static member inline (!.) d = DieValue d
-    //static member inline (*) (count, d) = { dice = d ; count = count }
-
-    // All of this crap is so that I can use Die in a Map
-    static member private objHash (o: obj) = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(o)
-    member private self.compareTo other = (Die.objHash self).CompareTo(Die.objHash other)
-    override self.Equals(o) = obj.ReferenceEquals(self, o)
-    override self.GetHashCode() = Die.objHash self
-
-    interface System.IComparable<Die> with
-        member self.CompareTo(other) = self.compareTo other
-    interface System.IComparable with
-        member self.CompareTo(other) =
-            match other with
-            | :? Die as d -> self.compareTo d
-            | _ -> 1
-
-(*and DicePool =
-    { dice : Die ; count : int }
-    static member inline (!.) d = DicePool d*)
+    override this.ToString() = sprintf "d%o" this.size
 
 let inline toProb value : ProbabilityValue = !. value
+let Arg = Argument
+
+let func (args: ProbabilityValue list) result = FunctionCall({ value = result }, args)
+let funcb (args: ProbabilityValue list) result = BoolFunctionCall({ value = result }, args)
 
 let inline (!>) (value: int) = Number value
-//let inline (!->) seq = Sequence seq
-//let inline (!.>) seq = !-> (seq |> Seq.map (fun x -> !. x))
-//let inline (!>>) seq = !-> (seq |> Seq.map (fun x -> !> x))
-let inline d size = new Die(size)
+let inline d size = { size = size }
 let inline pool size count = count * (d size)
 
 let inline cond c t f = Condition(c, t, f)
 let inline condb c t f = BoolCondition(c, t, f)
-//let inline pmatch v cnds = ValueMatch(v, cnds)
 
-(*
-let inline map f sv =
-    match sv with
-    | Sequence s -> Seq.map f s |> (!->)
-    | _ -> raise(exn("Cannot apply map to a non-sequence"))
-    *)
+// TODO: find a way to make invocations of a function not distinct
+type ProbabilityBuilder() =
+    member _.Bind(binding, boundFunc) =
+        let bind = BindingIdentity()
+        Binding(bind, binding, boundFunc (BoundValue bind))
+    member inline _.Return(v) = toProb v
+    member inline _.ReturnFrom(v) = v
+
+    //member _.Delay(f) = f()
+    //member _.Run(v) = v
+
+let prob = ProbabilityBuilder()
 
 type OutputValue =
     | NamedOutput of string * ProbabilityValue

@@ -45,58 +45,90 @@ module private Internal =
         |> Seq.concat
         |> Seq.filter matchingDieValueFilter
         |> Seq.map (mergeStates (fun _ b -> b))
+        
+    (*
+    let rec evaluateStates value =
+        match value with
+        | Number n -> stateWithValue n |> Seq.singleton
+        | DieValue d -> seq { for i in 1..d.Size -> { dieValues = Map.add d i Map.empty; realValue = i } }
+        | Sum(a, b) -> binop evaluateStates (+) a b
+        | Difference(a, b) -> binop evaluateStates (-) a b
+        | Multiply(a, b) -> binop evaluateStates (*) a b
+        | Divide(a, b) -> binop evaluateStates (/) a b
+        | Condition(cond, a, b) -> evaluateBools cond |> evalCondition evaluateStates a b
+    and evaluateBools value =
+        match value with
+        | Literal b -> stateWithValue b |> Seq.singleton
+        | Equals(v, i) -> evaluateStates v |> mapModify (=) i
+        | NotEquals(v, i) -> evaluateStates v |> mapModify (<>) i
+        | GreaterThan(v, i) -> evaluateStates v |> mapModify (>) i
+        | LessThan(v, i) -> evaluateStates v |> mapModify (<) i
+        | GreaterThanEqual(v, i) -> evaluateStates v |> mapModify (>=) i
+        | LessThanEqual(v, i) -> evaluateStates v |> mapModify (<=) i
+        | BoolNot v -> evaluateBools v |> Seq.map (modify not)
+        | BoolAnd(a, b) -> binop evaluateBools (&&) a b
+        | BoolOr(a, b) -> binop evaluateBools (||) a b
+        | BoolCondition(cond, a, b) -> evaluateBools cond |> evalCondition evaluateBools a b
 
-    type CachingEvaluator() =
-        let isCache = new System.Collections.Concurrent.ConcurrentDictionary<ProbabilityValue, EvaluatedState<int> seq>()
-        let bsCache = new System.Collections.Concurrent.ConcurrentDictionary<BooleanValue, EvaluatedState<bool> seq>()
-        member _.GetOrAddProb value func = isCache.GetOrAdd(value, new System.Func<ProbabilityValue, EvaluatedState<int> seq>(func))
-        member _.GetOrAddBool value func = bsCache.GetOrAdd(value, new System.Func<BooleanValue, EvaluatedState<bool> seq>(func))
-
-        member this.evaluateStates value =
-            match value with
-            | Number n -> stateWithValue n |> Seq.singleton
-            | DieValue d -> seq { for i in 1..d.Size -> { dieValues = Map.add d i Map.empty; realValue = i } }
-            | Sum(a, b) -> binop this.evaluateStatesC (+) a b
-            | Difference(a, b) -> binop this.evaluateStatesC (-) a b
-            | Multiply(a, b) -> binop this.evaluateStatesC (*) a b
-            | Divide(a, b) -> binop this.evaluateStatesC (/) a b
-            | Condition(cond, a, b) -> this.evaluateBoolsC cond |> evalCondition this.evaluateStatesC a b
-        member this.evaluateBools value =
-            match value with
-            | Literal b -> stateWithValue b |> Seq.singleton
-            | Equals(v, i) -> this.evaluateStatesC v |> mapModify (=) i
-            | NotEquals(v, i) -> this.evaluateStatesC v |> mapModify (<>) i
-            | GreaterThan(v, i) -> this.evaluateStatesC v |> mapModify (>) i
-            | LessThan(v, i) -> this.evaluateStatesC v |> mapModify (<) i
-            | GreaterThanEqual(v, i) -> this.evaluateStatesC v |> mapModify (>=) i
-            | LessThanEqual(v, i) -> this.evaluateStatesC v |> mapModify (<=) i
-            | BoolNot v -> this.evaluateBoolsC v |> Seq.map (modify not)
-            | BoolAnd(a, b) -> binop this.evaluateBoolsC (&&) a b
-            | BoolOr(a, b) -> binop this.evaluateBoolsC (||) a b
-            | BoolCondition(cond, a, b) -> this.evaluateBoolsC cond |> evalCondition this.evaluateBoolsC a b
-
-        member this.evaluateStatesC value = this.GetOrAddProb value (this.evaluateStates >> Seq.cache)
-        member this.evaluateBoolsC value = this.GetOrAddBool value (this.evaluateBools >> Seq.cache)
-
-    let processWithName (cache: CachingEvaluator) name prob : OutputCsv.Row seq =
+    let processWithName name prob : OutputCsv.Row seq =
         let values = 
-            cache.evaluateStatesC prob
+            evaluateStates prob
             |> Seq.map (fun s -> s.realValue) 
             |> Seq.fold (fun m v -> Map.change v (Option.orElse (Some 0) >> Option.map ((+) 1)) m) Map.empty
         let total = Map.toSeq values |> Seq.sumBy snd
         Map.toSeq values
         |> Seq.map (fun (v, c) -> OutputCsv.Row(name, v, c, (float c) / (float total)))
+        *)
+
+    type AnyFunction = | BoolFunc of BoolFunction | IntFunc of Function
+
+    let swap f a b = f b a
+
+    let rec getFunctionsInInt value existing =
+        let inline binary a b = existing |> getFunctionsInInt a |> getFunctionsInInt b
+        match value with
+        | Sum(a, b) -> binary a b
+        | Difference(a, b) -> binary a b
+        | Multiply(a, b) -> binary a b
+        | Divide(a, b) -> binary a b
+        | Condition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInInt a |> getFunctionsInInt b
+        | FunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (Set.add (IntFunc func) existing) |> getFunctionsInInt func.value
+        | Binding(_, binding, value) -> existing |> getFunctionsInInt binding |> getFunctionsInInt value
+        | Number _ -> existing
+        | Argument _ -> existing
+        | DieValue _ -> existing
+        | BoundValue _ -> existing
+    and getFunctionsInBool value existing =
+        let inline binaryi a b = existing |> getFunctionsInInt a |> getFunctionsInInt b
+        let inline binaryb a b = existing |> getFunctionsInBool a |> getFunctionsInBool b
+        match value with
+        | Literal _ -> existing
+        | Equals(a, b) -> binaryi a b
+        | NotEquals(a, b) -> binaryi a b
+        | GreaterThan(a, b) -> binaryi a b
+        | LessThan(a, b) -> binaryi a b
+        | GreaterThanEqual(a, b) -> binaryi a b
+        | LessThanEqual(a, b) -> binaryi a b
+        | BoolNot v -> getFunctionsInBool v existing
+        | BoolAnd(a, b) -> binaryb a b
+        | BoolOr(a, b) -> binaryb a b
+        | BoolCondition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInBool a |> getFunctionsInBool b
+        | BoolFunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (Set.add (BoolFunc func) existing) |> getFunctionsInBool func.value
+
+    let processWithName name prob =
+        getFunctionsInInt prob Set.empty |> Seq.iteri (printfn "'%s'[%o] = %O" name)
+        Seq.empty
 
 
 let private makeCsv data = new OutputCsv(data)
 
-let private processOneImpl cache i (data: OutputValue) =
+let private processOneImpl i (data: OutputValue) =
     match data with
-    | NamedOutput(name, value) -> Internal.processWithName cache name value
-    | UnnamedOutput(value) -> Internal.processWithName cache (sprintf "output %o" i) value
+    | NamedOutput(name, value) -> Internal.processWithName name value
+    | UnnamedOutput(value) -> Internal.processWithName (sprintf "output %o" i) value
 
 let private processManyImpl (data: OutputValue seq) =
-    data |> Seq.mapi (processOneImpl (Internal.CachingEvaluator ())) |> Seq.concat
+    data |> Seq.mapi processOneImpl |> Seq.concat
 
-let processOne = processOneImpl (Internal.CachingEvaluator ()) 1 >> makeCsv
+let processOne = processOneImpl 1 >> makeCsv
 let processMany : OutputValue seq -> OutputCsv = processManyImpl >> makeCsv

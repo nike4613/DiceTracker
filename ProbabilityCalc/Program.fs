@@ -10,13 +10,13 @@ let rollsingle skill =
             (Literal true)
             (condb (roll =. !>1)
                 (Literal false)
-                (modified >. !>7)) |> toProb
-    } |> funcn "rollsingle" [skill]
+                (modified >. !>9))
+    } |> funcnb "rollsingle" [skill]
 
 let roll skill count =
     prob {
         return! seq { for _ in 1..count -> Arg 0 }
-        |> Seq.map (rollsingle)
+        |> Seq.map (rollsingle >> toProb)
         |> Seq.reduce (+)
     } |> funcn "roll" [skill]
 
@@ -29,7 +29,7 @@ let calcProb =
     seq {
         for attr in 1..8 do
             for skill in 0..5 do
-                rolldiff attr !>skill !>3 |> toProb 
+                rolldiff attr !>skill !>2 |> toProb 
                 |> outputName (sprintf "attr %o skill %o" attr skill)
     }
 

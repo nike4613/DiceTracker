@@ -17,6 +17,9 @@ type ProbabilityValue =
     | Binding of int * ProbabilityValue * ProbabilityValue
     | BoundValue of int
 
+    static member inline (!.) v = v
+    static member inline (!<.) v = v <>. 0
+
     static member inline (+) (a, b) = Sum (a, b)
     static member inline (-) (a, b) = Difference (a, b)
     static member inline (*) (a, b) = Multiply (a, b)
@@ -34,6 +37,7 @@ type ProbabilityValue =
 
 and BooleanValue =
     | Literal of bool
+    | BoolBinding of int * ProbabilityValue * BooleanValue
     | BoolCondition of BooleanValue * BooleanValue * BooleanValue
     | Equals of ProbabilityValue * ProbabilityValue
     | NotEquals of ProbabilityValue * ProbabilityValue
@@ -45,6 +49,9 @@ and BooleanValue =
     | BoolAnd of BooleanValue * BooleanValue
     | BoolOr of BooleanValue * BooleanValue
     | BoolFunctionCall of BoolFunction * ProbabilityValue list
+    
+    static member inline (!.) bval = Condition(bval, Number 1, Number 0)
+    static member inline (!<.) bval = bval
 
     static member inline (!) bval =
         match bval with
@@ -54,8 +61,6 @@ and BooleanValue =
         
     static member inline (&&.) (a, b) = BoolAnd(a, b)
     static member inline (||.) (a, b) = BoolOr(a, b)
-
-    static member inline (!.) bval = Condition(bval, Number 1, Number 0)
     
 and Function =
     { value : ProbabilityValue ; name : string option }
@@ -76,6 +81,7 @@ and Die =
     override this.ToString() = sprintf "d%o" this.size
 
 let inline toProb value : ProbabilityValue = !. value
+let inline toBool value : BooleanValue = !<. value
 let Arg = Argument
 
 let func (args: ProbabilityValue list) result = FunctionCall({ value = result ; name = None }, args)
@@ -98,14 +104,17 @@ type private FunctionBinder() =
         id <- id + 1
         result
 
-// TODO: find a way to make invocations of a function not distinct
 type ProbabilityBuilder() =
     let mutable thisBinder : ThreadLocal<FunctionBinder option> = new ThreadLocal<_>(fun () -> None)
-    member _.Bind(binding, boundFunc) =
-        let binder = Option.get thisBinder.Value
-        let id = binder.GetNextId()
+
+    member private _.BindId() = (Option.get thisBinder.Value).GetNextId()
+    member this.Bind(binding, boundFunc: ProbabilityValue -> ProbabilityValue) =
+        let id = this.BindId()
         Binding(id, binding, boundFunc (BoundValue id))
-        // TODO: make a Bind equivalent for booleans
+    member this.Bind(binding, boundFunc: ProbabilityValue -> BooleanValue) =
+        let id = this.BindId()
+        BoolBinding(id, binding, boundFunc (BoundValue id))
+
     member inline _.Return(v) = toProb v
     member inline _.ReturnFrom(v) = v
 

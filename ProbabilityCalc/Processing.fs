@@ -8,77 +8,6 @@ open FSharp.Collections
 type OutputCsv = CsvProvider<HasHeaders = false, Schema = "Name (string),Value (int),Occurences (int),Probability (float)">
 
 module private Internal =
-    type EvaluatedState<'v> = 
-        { dieValues: Map<Die, int>
-        ; realValue: 'v }
-
-    let stateWithValue value = { dieValues = Map.empty; realValue = value }
-    let copyWithValue state value = { dieValues = state.dieValues ; realValue = value }
-    
-    let modify op s = copyWithValue s (op s.realValue)
-
-    let matchingDieValueFilter (a, b) = 
-        a.dieValues
-        |> Map.toSeq
-        |> Seq.forall (fun (k, v) -> 
-            match Map.tryFind k b.dieValues with
-            | Some(bv) -> v = bv
-            | None -> true)
-
-    let mergeStates mergeVal (a, b) =
-        { dieValues = Seq.concat [a.dieValues |> Map.toSeq ; b.dieValues |> Map.toSeq]
-                        |> Seq.distinctBy fst
-                        |> Map
-        ; realValue = mergeVal a.realValue b.realValue }
-        
-    let binop eval op a b = 
-        Seq.allPairs (eval a) (eval b) 
-        |> Seq.filter matchingDieValueFilter
-        |> Seq.map (mergeStates op)
-
-    let mapModify op i = Seq.map (modify (fun v -> op v i))
-
-    let evalCondition evalv a b conds =
-        conds
-        |> Seq.map (fun s -> s, if s.realValue then evalv a else evalv b)
-        |> Seq.map (fun (s1, b) -> b |> Seq.map (fun s2 -> s1, s2))
-        |> Seq.concat
-        |> Seq.filter matchingDieValueFilter
-        |> Seq.map (mergeStates (fun _ b -> b))
-        
-    (*
-    let rec evaluateStates value =
-        match value with
-        | Number n -> stateWithValue n |> Seq.singleton
-        | DieValue d -> seq { for i in 1..d.Size -> { dieValues = Map.add d i Map.empty; realValue = i } }
-        | Sum(a, b) -> binop evaluateStates (+) a b
-        | Difference(a, b) -> binop evaluateStates (-) a b
-        | Multiply(a, b) -> binop evaluateStates (*) a b
-        | Divide(a, b) -> binop evaluateStates (/) a b
-        | Condition(cond, a, b) -> evaluateBools cond |> evalCondition evaluateStates a b
-    and evaluateBools value =
-        match value with
-        | Literal b -> stateWithValue b |> Seq.singleton
-        | Equals(v, i) -> evaluateStates v |> mapModify (=) i
-        | NotEquals(v, i) -> evaluateStates v |> mapModify (<>) i
-        | GreaterThan(v, i) -> evaluateStates v |> mapModify (>) i
-        | LessThan(v, i) -> evaluateStates v |> mapModify (<) i
-        | GreaterThanEqual(v, i) -> evaluateStates v |> mapModify (>=) i
-        | LessThanEqual(v, i) -> evaluateStates v |> mapModify (<=) i
-        | BoolNot v -> evaluateBools v |> Seq.map (modify not)
-        | BoolAnd(a, b) -> binop evaluateBools (&&) a b
-        | BoolOr(a, b) -> binop evaluateBools (||) a b
-        | BoolCondition(cond, a, b) -> evaluateBools cond |> evalCondition evaluateBools a b
-
-    let processWithName name prob : OutputCsv.Row seq =
-        let values = 
-            evaluateStates prob
-            |> Seq.map (fun s -> s.realValue) 
-            |> Seq.fold (fun m v -> Map.change v (Option.orElse (Some 0) >> Option.map ((+) 1)) m) Map.empty
-        let total = Map.toSeq values |> Seq.sumBy snd
-        Map.toSeq values
-        |> Seq.map (fun (v, c) -> OutputCsv.Row(name, v, c, (float c) / (float total)))
-        *)
 
     type AnyFunction = | BoolFunc of BoolFunction | IntFunc of Function
 
@@ -114,21 +43,57 @@ module private Internal =
         | BoolOr(a, b) -> binaryb a b
         | BoolCondition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInBool a |> getFunctionsInBool b
         | BoolFunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (BoolFunc func :: existing) |> getFunctionsInBool func.value
+        | BoolBinding(_, binding, value) -> existing |> getFunctionsInInt binding |> getFunctionsInBool value
 
-    let processWithName name prob =
-        getFunctionsInInt prob [] |> List.distinct |> Seq.iteri (printfn "'%s'[%o] = %O" name)
-        Seq.empty
+    type ProbabilityResult =
+        | Probability of float
+
+    type BoolProbResults = { isTrue : ProbabilityResult ; isFalse : ProbabilityResult }
+    type IntProbResults = Map<int, ProbabilityResult>
+
+    type AnyProbResults = | BoolResults of BoolProbResults | IntResults of IntProbResults
+
+    type FunctionCache = Map<AnyFunction, AnyProbResults>
+
+    let private doAnalyzeIntFunction cache func =
+        IntResults Map.empty, cache
+
+    let private doAnalyzeBoolFunction cache func =
+        BoolResults { isTrue = Probability 0. ; isFalse = Probability 1. }, cache
+
+    let private doAnalyzeFunction cache func =
+        match func with
+        | BoolFunc b -> doAnalyzeBoolFunction cache b
+        | IntFunc i -> doAnalyzeIntFunction cache i
+
+    let analyzeAnyFunction (cache: FunctionCache) func =
+        match Map.tryFind func cache with
+        | Some r -> r, cache
+        | None ->
+            let (result, cache) = doAnalyzeFunction cache func
+            result, Map.add func result cache
+
+    let processWithName (cache: FunctionCache) name prob =
+        let functions = getFunctionsInInt prob [] |> List.distinct
+        Seq.empty, cache
 
 
 let private makeCsv data = new OutputCsv(data)
 
-let private processOneImpl i (data: OutputValue) =
+let private processOneImpl cache i data =
     match data with
-    | NamedOutput(name, value) -> Internal.processWithName name value
-    | UnnamedOutput(value) -> Internal.processWithName (sprintf "output %o" i) value
+    | NamedOutput(name, value) -> Internal.processWithName cache name value
+    | UnnamedOutput(value) -> Internal.processWithName cache (sprintf "output %o" i) value
 
 let private processManyImpl (data: OutputValue seq) =
-    data |> Seq.mapi processOneImpl |> Seq.concat
+    data 
+    |> Seq.mapi (fun i v -> (i, v)) 
+    |> Seq.fold (fun (sets, cache) (i, v) -> 
+                    let (r, cache) = processOneImpl cache i v
+                    r::sets, cache) ([], Map.empty)
+    |> fst
+    |> List.rev
+    |> Seq.concat
 
-let processOne = processOneImpl 1 >> makeCsv
+let processOne = processOneImpl Map.empty 1 >> fst >> makeCsv
 let processMany : OutputValue seq -> OutputCsv = processManyImpl >> makeCsv

@@ -53,6 +53,10 @@ module private Internal =
         | RSum of ProbabilityResultResult * ProbabilityResultResult
         | ArgumentValue of int
 
+    type BoolResultResult =
+        | BoolValue of bool
+        | REquals of ProbabilityResultResult * ProbabilityResultResult
+
     type ProbabilityResultValue =
         | Probability of float
         | PSum of ProbabilityResultValue * ProbabilityResultValue
@@ -60,21 +64,33 @@ module private Internal =
 
     type ProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
     type NormalResults = ProbResults<ProbabilityResultResult>
-    type BoolResults = ProbResults<bool>
+    type BoolResults = ProbResults<BoolResultResult>
 
     type AnyProbResults = | AnyNormalResults of NormalResults | AnyBoolResults of BoolResults
 
     type FunctionCache = Map<AnyFunction, AnyProbResults>
+    
+    let rec tryGetValueRInt res =
+        match res with
+        | IntValue v -> Some v
+        | RSum(a, b) -> Option.map2 (+) (tryGetValueRInt a) (tryGetValueRInt b)
+        | _ -> None
 
     let rec reduceResult res =
-        let rec tryGetValue res =
-            match res with
-            | IntValue v -> Some v
-            | RSum(a, b) -> Option.map2 (+) (tryGetValue a) (tryGetValue b)
-            | _ -> None
-
-        match tryGetValue res, res with
+        match tryGetValueRInt res, res with
         | Some i, _ -> IntValue i
+        | _, a -> a
+
+    let rec tryGetValueRBool res =
+        match res with
+        | BoolValue v -> Some v
+        | REquals(a, b) -> 
+            Option.map2 (=) (tryGetValueRInt a) (tryGetValueRInt b)
+            |> Option.orElse (if a = b then Some true else None)
+
+    let rec reduceBoolResult res =
+        match tryGetValueRBool res, res with
+        | Some i, _ -> BoolValue i
         | _, a -> a
 
     let rec reduceProb prob =
@@ -89,7 +105,7 @@ module private Internal =
         | Some v, _ -> Probability v
         | _, a -> a
 
-    let buildMap : seq<_> -> NormalResults = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty
+    let inline buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
     let rec analyze cache value : NormalResults * FunctionCache =
         match value with
@@ -108,7 +124,7 @@ module private Internal =
             let (result : BoolResults, cache) = analyzeBool cache cond
             let (result, cache) = 
                 result |> Map.toSeq
-                |> Seq.mapFold (fun cache (r, v) ->
+                |> Seq.mapFold (fun cache (BoolValue r, v) -> // TODO: make this support conditions which aren't known statically
                     let (res, cache) = analyze cache (if r then t else f)
                     let res = 
                         res |> Map.toSeq 
@@ -116,9 +132,16 @@ module private Internal =
                     res, cache) cache
             result |> Seq.concat |> buildMap, cache
 
-
-    and analyzeBool cache value =
-        Map.empty, cache // TODO:
+    and analyzeBool cache value : BoolResults * FunctionCache =
+        match value with
+        | Literal b -> Map.add (BoolValue b) (Probability 1.) Map.empty, cache
+        | Equals(a, b) ->
+            let (ra, cache) = analyze cache a |> tmap1 Map.toSeq
+            let (rb, cache) = analyze cache b |> tmap1 Map.toSeq
+            Seq.allPairs ra rb
+            |> Seq.map (fun ((k1, v1), (k2, v2)) -> REquals(k1, k2), PProd(v1, v2))
+            |> Seq.map (tmap reduceBoolResult reduceProb)
+            |> buildMap, cache
 
     and analyzeAnyFunction (cache: FunctionCache) func =
         let doAnalyzeFunction cache func =
@@ -133,7 +156,7 @@ module private Internal =
             result, Map.add func result cache
 
     let processWithName (cache: FunctionCache) name prob =
-        let functions = getFunctionsInInt prob [] |> List.distinct
+        //let functions = getFunctionsInInt prob [] |> List.distinct
         //let cache = functions |> List.mapFold analyzeAnyFunction cache |> snd
         // we calculate and cache the analyzed functions, but ignore their results for the actual final analysis
         let (result, cache) = analyze cache prob

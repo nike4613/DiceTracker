@@ -91,7 +91,7 @@ let funcn name (args: ProbabilityValue list) result = FunctionCall({ value = res
 let funcnb name (args: ProbabilityValue list) result = BoolFunctionCall({ value = result ; name = Some name }, args)
 
 let inline (!>) (value: int) = Number value
-let inline d size = { size = size }
+let inline d size = { size = size } |> toProb
 let inline pool size count = count * (d size)
 
 let inline cond c t f = Condition(c, t, f)

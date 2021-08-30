@@ -4,7 +4,7 @@ open Prob
 
 let rollsingle skill =
     prob {
-        let! roll = d 12 |> toProb
+        let! roll = d 12
         let! modified = roll + (Arg 0)
         return! condb (roll =. !>12)
             (Literal true)
@@ -15,16 +15,15 @@ let rollsingle skill =
 
 let roll skill count =
     prob {
-        return! seq { for _ in 1..count -> Arg 0 }
-        |> Seq.map (rollsingle >> toProb)
-        |> Seq.reduce (+)
+        return! seq { for _ in 1..count -> rollsingle (Arg 0) }
+        |> Seq.map toProb |> Seq.reduce (+)
     } |> funcn "roll" [skill]
 
 let rolldiff count skill diff = 
     prob {
         let pityDice =
             if diff > count then
-                seq { for _ in 1..(diff - count) -> d 12 |> toProb =. !>12 }
+                seq { for _ in 1..(diff - count) -> d 12 =. !>12 }
                 |> Seq.map toProb |> Seq.reduce (+)
             else !>0
         return! ((roll (Arg 0) count) + pityDice >=. !>diff)

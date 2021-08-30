@@ -27,10 +27,12 @@ let rolldiff count skill diff =
 
 let calcProb =
     seq {
-        for attr in 1..8 do
+        yield d 12 |> toProb |> output
+        yield (d 12 |> toProb) + (Arg 0) |> output
+        (*for attr in 1..8 do
             for skill in 0..5 do
-                rolldiff attr !>skill !>2 |> toProb 
-                |> outputName (sprintf "attr %o skill %o" attr skill)
+                yield rolldiff attr !>skill !>2 |> toProb 
+                |> outputName (sprintf "attr %o skill %o" attr skill)*)
     }
 
 [<EntryPoint>]

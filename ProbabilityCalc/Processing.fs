@@ -50,7 +50,6 @@ module private Internal =
 
     type ProbabilityResultResult =
         | IntValue of int
-        | BoolValue of bool
         | RSum of ProbabilityResultResult * ProbabilityResultResult
         | ArgumentValue of int
 
@@ -67,9 +66,28 @@ module private Internal =
 
     type FunctionCache = Map<AnyFunction, AnyProbResults>
 
-    let rec reduceResult res = res // TODO: implement
+    let rec reduceResult res =
+        let rec tryGetValue res =
+            match res with
+            | IntValue v -> Some v
+            | RSum(a, b) -> Option.map2 (+) (tryGetValue a) (tryGetValue b)
+            | _ -> None
 
-    let rec reduceProb prob = prob // TODO: implement
+        match tryGetValue res, res with
+        | Some i, _ -> IntValue i
+        | _, a -> a
+
+    let rec reduceProb prob =
+        let rec tryGetValue p =
+            let inline binop op a b = Option.map2 op (tryGetValue a) (tryGetValue b)
+            match p with
+            | Probability v -> Some v
+            | PSum(a, b) -> binop (+) a b
+            | PProd(a, b) -> binop (*) a b 
+
+        match tryGetValue prob, prob with
+        | Some v, _ -> Probability v
+        | _, a -> a
 
     let buildMap : seq<_> -> NormalResults = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty
 
@@ -123,7 +141,9 @@ module private Internal =
             result
             |> Map.toSeq
             |> Seq.map (tmap reduceResult reduceProb)
-            |> Seq.map (fun (IntValue v, Probability p) -> OutputCsv.Row(name, v, p))
+            |> Seq.map (tmap1 (fun v -> match v with | IntValue v -> v | _ -> raise (exn $"Found unresolvable value %O{v}")))
+            |> Seq.map (tmap2 (fun v -> match v with | Probability p -> p | _ -> raise (exn $"Found unresolvable probability %O{v}")))
+            |> Seq.map (fun (v, p) -> OutputCsv.Row(name, v, p))
         result, cache
 
 

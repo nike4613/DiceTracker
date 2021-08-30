@@ -28,7 +28,8 @@ let rolldiff count skill diff =
 let calcProb =
     seq {
         yield d 12 |> toProb |> output
-        yield (d 12 |> toProb) + (Arg 0) |> output
+        yield (d 12 |> toProb) + !>3 |> output
+        yield (d 12 |> toProb) =. !>12 |> toProb |> output
         (*for attr in 1..8 do
             for skill in 0..5 do
                 yield rolldiff attr !>skill !>2 |> toProb 

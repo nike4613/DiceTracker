@@ -123,7 +123,7 @@ module private Internal =
         | Multiply(a, b) -> binop Multiply a b
         | Divide(a, b) -> binop Divide a b
         | Condition(c, a, b) -> Condition(buildCallBool args c, buildCallInt args a, buildCallInt args b)
-        | FunctionCall(func, args) -> FunctionCall(func, args |> List.map (buildCallInt args))
+        | FunctionCall(func, fargs) -> FunctionCall(func, fargs |> List.map (buildCallInt args))
         | Binding(i, v, r) -> Binding(i, buildCallInt args v, buildCallInt args r)
         | BoundValue _ -> funcVal
 
@@ -142,7 +142,7 @@ module private Internal =
         | BoolNot b -> BoolNot(buildCallBool args b)
         | BoolAnd(a, b) -> binop buildCallBool BoolAnd a b
         | BoolOr(a, b) -> binop buildCallBool BoolOr a b
-        | BoolFunctionCall(func, args) -> BoolFunctionCall(func, args |> List.map (buildCallInt args))
+        | BoolFunctionCall(func, fargs) -> BoolFunctionCall(func, fargs |> List.map (buildCallInt args))
 
     let findOrAdd key mkFunc map =
         match Map.tryFind key map with

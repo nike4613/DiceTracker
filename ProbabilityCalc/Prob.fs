@@ -13,7 +13,7 @@ type ProbabilityValue =
     | Multiply of ProbabilityValue * ProbabilityValue
     | Divide of ProbabilityValue * ProbabilityValue
     | Condition of BooleanValue * ProbabilityValue * ProbabilityValue
-    | FunctionCall of Function * ProbabilityValue list
+    //| FunctionCall of Function * ProbabilityValue list
     | Binding of int * ProbabilityValue * ProbabilityValue
     | BoundValue of int
 
@@ -48,7 +48,7 @@ and BooleanValue =
     | BoolNot of BooleanValue
     | BoolAnd of BooleanValue * BooleanValue
     | BoolOr of BooleanValue * BooleanValue
-    | BoolFunctionCall of BoolFunction * ProbabilityValue list
+    //| BoolFunctionCall of BoolFunction * ProbabilityValue list
     
     static member inline (!.) bval = Condition(bval, Number 1, Number 0)
     static member inline (!<.) bval = bval
@@ -61,7 +61,8 @@ and BooleanValue =
         
     static member inline (&&.) (a, b) = BoolAnd(a, b)
     static member inline (||.) (a, b) = BoolOr(a, b)
-    
+   
+   (*
 and Function =
     { value : ProbabilityValue ; name : string option }
     override this.ToString() =
@@ -74,7 +75,8 @@ and BoolFunction =
         match this.name with
         | Some n -> $"{{ name = {n} }}"
         | None -> $"{{ value = {this.value} }}"
-    
+    *)
+
 and Die =
     { size : int }
     static member inline (!.) d = DieValue d
@@ -84,11 +86,13 @@ let inline toProb value : ProbabilityValue = !. value
 let inline toBool value : BooleanValue = !<. value
 let Arg = Argument
 
+(*
 let func (args: ProbabilityValue list) result = FunctionCall({ value = result ; name = None }, args)
 let funcb (args: ProbabilityValue list) result = BoolFunctionCall({ value = result ; name = None }, args)
 
 let funcn name (args: ProbabilityValue list) result = FunctionCall({ value = result ; name = Some name }, args)
 let funcnb name (args: ProbabilityValue list) result = BoolFunctionCall({ value = result ; name = Some name }, args)
+*)
 
 let inline (!>) (value: int) = Number value
 let inline d size = { size = size }

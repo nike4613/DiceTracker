@@ -11,19 +11,19 @@ let rollsingle skill =
             (condb (roll =. !>1)
                 (Literal false)
                 (modified >. !>9))
-    } |> funcnb "rollsingle" [skill]
+    } //|> funcnb "rollsingle" [skill]
 
 let roll skill count =
     prob {
         return! seq { for _ in 1..count -> Arg 0 }
         |> Seq.map (rollsingle >> toProb)
         |> Seq.reduce (+)
-    } |> funcn "roll" [skill]
+    } //|> funcn "roll" [skill]
 
 let rolldiff count skill diff = 
     prob {
         return! ((roll (Arg 0) count) >. (Arg 1))
-    } |> funcnb "rolldiff" [skill; diff]
+    } //|> funcnb "rolldiff" [skill; diff]
 
 let calcProb =
     seq {

@@ -9,13 +9,14 @@ type OutputCsv = CsvProvider<HasHeaders = false, Schema = "Name (string),Value (
 
 module private Internal =
 
-    type AnyFunction = | BoolFunc of BoolFunction | IntFunc of Function
+    //type AnyFunction = | BoolFunc of BoolFunction | IntFunc of Function
 
     let swap f a b = f b a
     let inline tmap f1 f2 (a, b) = (f1 a, f2 b)
     let inline tmap1 f (a, b) = (f a, b)
     let inline tmap2 f (a, b) = (a, f b)
 
+    (*
     let rec getFunctionsInInt value existing =
         let binary a b = existing |> getFunctionsInInt a |> getFunctionsInInt b
         match value with
@@ -47,6 +48,7 @@ module private Internal =
         | BoolCondition(cond, a, b) -> existing |> getFunctionsInBool cond |> getFunctionsInBool a |> getFunctionsInBool b
         | BoolFunctionCall(func, args) -> args |> Seq.fold (swap getFunctionsInInt) (BoolFunc func :: existing) |> getFunctionsInBool func.value
         | BoolBinding(_, binding, value) -> existing |> getFunctionsInInt binding |> getFunctionsInBool value
+    *)
 
     type ProbabilityResultResult =
         | IntValue of int
@@ -78,7 +80,7 @@ module private Internal =
 
     type BindingSet = Map<int, NormalResults>
 
-    type FunctionCache = Map<AnyFunction, AnyProbResults>
+    //type FunctionCache = Map<AnyFunction, AnyProbResults>
     
     let rec tryGetValueRInt res =
         match res with
@@ -169,7 +171,7 @@ module private Internal =
             let (v, map) = mkFunc key map
             v, (Map.add key v map)
 
-    let rec analyze bindings cache value : NormalResults * FunctionCache =
+    let rec analyze bindings cache value = //: NormalResults * FunctionCache =
         match value with
         | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
         | Argument i -> Map.add (ArgumentValue i) (Probability 1.) Map.empty, cache
@@ -195,10 +197,10 @@ module private Internal =
                     res, cache) cache
             result |> Seq.concat |> buildMap, cache
 
-        | FunctionCall(func, args) ->
+        (*| FunctionCall(func, args) ->
             let (results, cache) = analyzeIntFunc bindings cache func
             let (args, cache) = List.mapFold (analyze bindings) cache args
-            buildCallInt results args, cache
+            buildCallInt results args, cache*)
 
         | Binding(i, value, expr) ->
             let (value, cache) = analyze bindings cache value
@@ -208,7 +210,7 @@ module private Internal =
             // TODO: how do I make this correctly account for each case?
             Map.tryFind i bindings |> Option.get, cache
 
-    and analyzeBool bindings cache value : BoolResults * FunctionCache =
+    and analyzeBool bindings cache value = // : BoolResults * FunctionCache =
         let binop analyze op a b =
             let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
@@ -245,23 +247,23 @@ module private Internal =
                     res, cache) cache
             result |> Seq.concat |> buildMap, cache
 
-        | BoolFunctionCall(func, args) ->
+        (*| BoolFunctionCall(func, args) ->
             let (results, cache) = analyzeBoolFunc bindings cache func
             let (args, cache) = List.mapFold (analyze bindings) cache args
-            buildCallBool results args, cache
+            buildCallBool results args, cache*)
 
         | BoolBinding(i, value, expr) ->
             let (value, cache) = analyze bindings cache value
             analyzeBool (Map.add i value bindings) cache expr
             
-    and analyzeBoolFunc bindings cache func =
+    (*and analyzeBoolFunc bindings cache func =
         findOrAdd (BoolFunc func) (fun _ m -> analyzeBool bindings m func.value |> tmap1 AnyBoolResults) cache
         |> tmap1 (fun v -> match v with | AnyBoolResults r -> r | _ -> raise (exn "Somehow function had the wrong result type"))
     and analyzeIntFunc bindings cache func =
         findOrAdd (IntFunc func) (fun _ m -> analyze bindings m func.value |> tmap1 AnyNormalResults) cache
-        |> tmap1 (fun v -> match v with | AnyNormalResults r -> r | _ -> raise (exn "Somehow function had the wrong result type"))
+        |> tmap1 (fun v -> match v with | AnyNormalResults r -> r | _ -> raise (exn "Somehow function had the wrong result type"))*)
 
-    let processWithName (cache: FunctionCache) name prob =
+    let processWithName cache name prob =
         //let functions = getFunctionsInInt prob [] |> List.distinct
         //let cache = functions |> List.mapFold analyzeAnyFunction cache |> snd
         // we calculate and cache the analyzed functions, but ignore their results for the actual final analysis

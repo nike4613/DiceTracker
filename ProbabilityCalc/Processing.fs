@@ -107,6 +107,15 @@ module private Internal =
 
     let inline buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
+    let rec buildCallInt funcResults args = funcResults // TODO: implement
+
+    let findOrAdd key mkFunc map =
+        match Map.tryFind key map with
+        | Some v -> v, map
+        | None ->
+            let (v, map) = mkFunc key map
+            v, (Map.add key v map)
+
     let rec analyze cache value : NormalResults * FunctionCache =
         match value with
         | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
@@ -132,6 +141,11 @@ module private Internal =
                     res, cache) cache
             result |> Seq.concat |> buildMap, cache
 
+        | FunctionCall(func, args) ->
+            let (results, cache) = analyzeIntFunc cache func
+            buildCallInt results args, cache
+
+
     and analyzeBool cache value : BoolResults * FunctionCache =
         match value with
         | Literal b -> Map.add (BoolValue b) (Probability 1.) Map.empty, cache
@@ -143,17 +157,12 @@ module private Internal =
             |> Seq.map (tmap reduceBoolResult reduceProb)
             |> buildMap, cache
 
-    and analyzeAnyFunction (cache: FunctionCache) func =
-        let doAnalyzeFunction cache func =
-            match func with
-            | BoolFunc b -> analyzeBool cache b.value |> tmap1 AnyBoolResults
-            | IntFunc i -> analyze cache i.value |> tmap1 AnyNormalResults
-
-        match Map.tryFind func cache with
-        | Some r -> r, cache
-        | None ->
-            let (result, cache) = doAnalyzeFunction cache func
-            result, Map.add func result cache
+    and analyzeBoolFunc cache func =
+        findOrAdd (BoolFunc func) (fun _ m -> analyzeBool m func.value |> tmap1 AnyBoolResults) cache
+        |> tmap1 (fun v -> match v with | AnyBoolResults r -> r | _ -> raise (exn "Somehow function had the wrong result type"))
+    and analyzeIntFunc cache func =
+        findOrAdd (IntFunc func) (fun _ m -> analyze m func.value |> tmap1 AnyNormalResults) cache
+        |> tmap1 (fun v -> match v with | AnyNormalResults r -> r | _ -> raise (exn "Somehow function had the wrong result type"))
 
     let processWithName (cache: FunctionCache) name prob =
         //let functions = getFunctionsInInt prob [] |> List.distinct

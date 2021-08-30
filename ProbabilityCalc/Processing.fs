@@ -108,6 +108,7 @@ module private Internal =
     let inline buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
     let rec buildCallInt funcResults args = funcResults // TODO: implement
+    let rec buildCallBool funcResults args = funcResults // TODO: implement
 
     let findOrAdd key mkFunc map =
         match Map.tryFind key map with
@@ -156,6 +157,10 @@ module private Internal =
             |> Seq.map (fun ((k1, v1), (k2, v2)) -> REquals(k1, k2), PProd(v1, v2))
             |> Seq.map (tmap reduceBoolResult reduceProb)
             |> buildMap, cache
+
+        | BoolFunctionCall(func, args) ->
+            let (results, cache) = analyzeBoolFunc cache func
+            buildCallBool results args, cache
 
     and analyzeBoolFunc cache func =
         findOrAdd (BoolFunc func) (fun _ m -> analyzeBool m func.value |> tmap1 AnyBoolResults) cache

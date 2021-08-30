@@ -19,6 +19,9 @@ module private Internal =
     type ProbabilityResultResult =
         | IntValue of int
         | RSum of ProbabilityResultResult * ProbabilityResultResult
+        | RDiff of ProbabilityResultResult * ProbabilityResultResult
+        | RMul of ProbabilityResultResult * ProbabilityResultResult
+        | RDiv of ProbabilityResultResult * ProbabilityResultResult
 
     type BoolResultResult =
         | BoolValue of bool
@@ -48,9 +51,13 @@ module private Internal =
     type FunctionCache = Map<AnyFunction, AnyProbResults>
     
     let rec tryGetValueRInt res =
+        let binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
         match res with
         | IntValue v -> Some v
-        | RSum(a, b) -> Option.map2 (+) (tryGetValueRInt a) (tryGetValueRInt b)
+        | RSum(a, b) -> binop (+) a b
+        | RDiff(a, b) -> binop (-) a b
+        | RMul(a, b) -> binop (*) a b
+        | RDiv(a, b) -> binop (/) a b
 
     let rec reduceResult res =
         match tryGetValueRInt res, res with
@@ -152,16 +159,20 @@ module private Internal =
             v, (Map.add key v map)
 
     let rec analyze bindings cache value : NormalResults * FunctionCache =
+        let binop op a b =
+            let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
+            let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
+            Seq.allPairs ra rb
+            |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
+            |> buildMap, cache
         match value with
         | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
         | Argument i -> raise (exn "Unbound argument found in analysis")
         | DieValue { size = n } -> seq { for i in 1..n -> IntValue i, Probability (1./(float n)) } |> NormalResults, cache
-        | Sum(a, b) -> 
-            let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
-            let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
-            Seq.allPairs ra rb
-            |> Seq.map (fun ((k1, v1), (k2, v2)) -> RSum(k1, k2), PProd(v1, v2))
-            |> buildMap, cache
+        | Sum(a, b) -> binop RSum a b
+        | Difference(a, b) -> binop RDiff a b
+        | Multiply(a, b) -> binop RMul a b
+        | Divide(a, b) -> binop RDiv a b
 
         | Condition(cond, t, f) ->
             let (result : BoolResults, cache) = analyzeBool bindings cache cond

@@ -22,8 +22,13 @@ let roll skill count =
 
 let rolldiff count skill diff = 
     prob {
-        return! ((roll (Arg 0) count) >. (Arg 1))
-    } |> funcnb "rolldiff" [skill; diff]
+        let pityDice =
+            if diff > count then
+                seq { for _ in 1..(diff - count) -> d 12 |> toProb =. !>12 }
+                |> Seq.map toProb |> Seq.reduce (+)
+            else !>0
+        return! ((roll (Arg 0) count) + pityDice >=. !>diff)
+    } |> funcnb "rolldiff" [skill]
 
 let calcProb =
     seq {
@@ -32,8 +37,8 @@ let calcProb =
         yield rollsingle !>3 |> toProb |> outputName "rollsingle 3"*)
         for attr in 1..8 do
             for skill in 0..5 do
-                yield rolldiff attr !>skill !>2 |> toProb 
-                |> outputName (sprintf "attr %o skill %o" attr skill)
+                yield rolldiff attr !>skill 3 |> toProb 
+                |> outputName $"attr {attr} skill {skill}"
     }
 
 [<EntryPoint>]

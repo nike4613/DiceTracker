@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="MonacoEditor.fs" />
+    <Compile Include="Evaluation.fs" />
     <Compile Include="Main.fs" />
     <Compile Include="Startup.fs" />
   </ItemGroup>
@@ -15,7 +16,9 @@
     <PackageReference Update="FSharp.Core" Version="5.0.2" />
     <PackageReference Include="Bolero" Version="0.17.25" />
     <PackageReference Include="Bolero.Build" Version="0.17.25" />
+    <PackageReference Include="FSharp.Compiler.Service" Version="40.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="5.0.9" />
+    <PackageReference Include="XPlot.Plotly" Version="4.0.3" />
   </ItemGroup>
 
   <ItemGroup>

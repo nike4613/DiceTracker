@@ -271,4 +271,4 @@ module Processing =
         |> Map
 
     /// Processes a single OutputValue into its output probabilities
-    let processOne = processOneImpl Map.empty 1 >> fun (_, b, _) -> b
+    let processOne = processOneImpl Map.empty 1 >> fun (name, b, _) -> Map.add name b Map.empty

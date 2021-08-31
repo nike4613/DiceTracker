@@ -4,37 +4,53 @@ open Elmish
 open Bolero
 open Bolero.Html
 open Microsoft.JSInterop
+open XPlot.Plotly
+
 
 type Model =
     {
-        monaco: Monaco.Model
+        text: string
+        plotScript: string option
     }
 
 type Message =
-    | Ping
-    | MonacoMessage of Monaco.Message
+    | UpdateText of string
+    | PlotChart of PlotlyChart
+    | Evaluate
     
 let initModel =
     {
-        monaco = { editor = None ; value = "" }
+        text = "// TODO: examples"
+        plotScript = None
     }, Cmd.none
 
-let update message model =
+let update (js: IJSRuntime) message model =
     match message with
-    | Ping -> model, Cmd.none
-    | MonacoMessage msg -> 
-        let (mdl, cmd) = Monaco.update msg model.monaco
-        { model with monaco = mdl }, Cmd.map MonacoMessage cmd
+    | UpdateText t ->  { model with text = t }, Cmd.none
+    | PlotChart c -> 
+        let chart = c |> Chart.WithId "results"
+        { model with plotScript = Some (chart.GetPlottingJS()) }, Cmd.none
+    | Evaluate -> model, Cmd.none
 
 let view model dispatch =
-    div [attr.``class`` "main"] [
-        ecomp<Monaco.Editor,_,_> [] model.monaco (MonacoMessage >> dispatch)
-        div [attr.id "controls"] []
+    concat [
+        script [ attr.src Html.DefaultPlotlySrc ] []
+        textarea [
+            attr.id "editor"
+            bind.input.string model.text (UpdateText >> dispatch)
+        ] []
+        div [attr.id "controls"] [
+            button [ on.click (fun _ -> dispatch Evaluate) ] [ text "Evaluate" ]
+        ]
         div [attr.id "results"] []
+        cond model.plotScript <| function
+            | Some s -> script [] [ text s ]
+            | None -> empty
     ]
 
 type Application() =
     inherit ProgramComponent<Model, Message>()
 
     override this.Program =
+        let update = update this.JSRuntime
         Program.mkProgram (fun _ -> initModel) update view

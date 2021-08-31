@@ -3,6 +3,7 @@ html, body {
 }
 
 body {
+    padding: 5px;
     /*display: flex;
     flex-direction: column;*/
 }
@@ -13,4 +14,6 @@ body {
 
 #editor {
     min-height: 33%;
+    min-width: 50%;
+    width: 100%;
 }

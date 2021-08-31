@@ -1,6 +1,6 @@
 ﻿
 open System
-open Probability
+open DiceTracker
 
 let rollsingle skill =
     prob {
@@ -41,5 +41,5 @@ let calcProb =
 let main argv =
     printfn ""
     let results = calcProb |> Processing.processMany
-    results.SaveToString() |> printfn "%s"
+    printfn $"{results}"
     0 // return an integer exit code

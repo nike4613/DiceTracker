@@ -1,5 +1,5 @@
 ﻿
-namespace Probability
+namespace DiceTracker
 
 [<AutoOpen>]
 module Probability =

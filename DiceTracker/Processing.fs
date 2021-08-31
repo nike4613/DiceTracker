@@ -1,12 +1,9 @@
 ﻿
-namespace Probability
+namespace DiceTracker
+
 module Processing =
 
-    open Probability
-    open FSharp.Data
     open FSharp.Collections
-
-    type OutputCsv = CsvProvider<HasHeaders = false, Schema = "Name (string),Value (int),Probability (float)">
 
     module private Internal =
 
@@ -253,26 +250,25 @@ module Processing =
                 |> Seq.map (tmap reduceResult reduceProb)
                 |> Seq.map (tmap1 (fun v -> match v with | IntValue v -> v | _ -> raise (exn $"Found unresolvable value %O{v}")))
                 |> Seq.map (tmap2 (fun v -> match v with | Probability p -> p | _ -> raise (exn $"Found unresolvable probability %O{v}")))
-                |> Seq.map (fun (v, p) -> OutputCsv.Row(name, v, p))
-            result, cache
+                |> Map
+            name, result, cache
 
-
-    let private makeCsv data = new OutputCsv(data)
 
     let private processOneImpl cache i data =
         match data with
         | NamedOutput(name, value) -> Internal.processWithName cache name value
         | UnnamedOutput(value) -> Internal.processWithName cache (sprintf "output %o" i) value
 
-    let private processManyImpl (data: OutputValue seq) =
+    /// Processes some list of OutputValues into a map of their names to their output probabilities.
+    let processMany (data: OutputValue seq) =
         data 
         |> Seq.mapi (fun i v -> (i, v)) 
         |> Seq.fold (fun (sets, cache) (i, v) -> 
-                        let (r, cache) = processOneImpl cache i v
-                        r::sets, cache) ([], Map.empty)
+                        let (name, r, cache) = processOneImpl cache i v
+                        (name, r)::sets, cache) ([], Map.empty)
         |> fst
         |> List.rev
-        |> Seq.concat
+        |> Map
 
-    let processOne = processOneImpl Map.empty 1 >> fst >> makeCsv
-    let processMany : OutputValue seq -> OutputCsv = processManyImpl >> makeCsv
+    /// Processes a single OutputValue into its output probabilities
+    let processOne = processOneImpl Map.empty 1 >> fun (_, b, _) -> b

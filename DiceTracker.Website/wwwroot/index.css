@@ -3,11 +3,14 @@ html, body {
 }
 
 body {
-    display: flex;
-    flex-direction: column;
+    /*display: flex;
+    flex-direction: column;*/
 }
 
-#main {
-    flex: 1;
+.main {
+    height: 100%;
 }
 
+#editor {
+    min-height: 33%;
+}

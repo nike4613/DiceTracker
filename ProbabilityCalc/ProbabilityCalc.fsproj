@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Prob.fs" />
+    <Compile Include="Probability.fs" />
     <Compile Include="Processing.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

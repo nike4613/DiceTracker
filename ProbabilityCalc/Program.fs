@@ -1,6 +1,6 @@
 ﻿
 open System
-open Prob
+open Probability
 
 let rollsingle skill =
     prob {

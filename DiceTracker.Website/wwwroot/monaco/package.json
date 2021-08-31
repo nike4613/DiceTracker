@@ -1,0 +1,8 @@
+{
+  "name": "dicetracker-website-monaco",
+  "version": "1.0.0",
+  "license": "MIT",
+  "dependencies": {
+    "monaco-editor": "0.27.0"
+  }
+}

@@ -7,6 +7,8 @@ Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "ProbabilityCalc", "Probabil
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DiceTracker", "DiceTracker\DiceTracker.fsproj", "{90C262D9-00E4-47C0-9B83-68A0FAA709B8}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DiceTracker.Website", "DiceTracker.Website\DiceTracker.Website.fsproj", "{462638B7-CA0C-466C-93E7-071B9B6809ED}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{90C262D9-00E4-47C0-9B83-68A0FAA709B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{90C262D9-00E4-47C0-9B83-68A0FAA709B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{90C262D9-00E4-47C0-9B83-68A0FAA709B8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{462638B7-CA0C-466C-93E7-071B9B6809ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{462638B7-CA0C-466C-93E7-071B9B6809ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{462638B7-CA0C-466C-93E7-071B9B6809ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{462638B7-CA0C-466C-93E7-071B9B6809ED}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

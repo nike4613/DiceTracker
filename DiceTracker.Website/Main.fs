@@ -11,6 +11,7 @@ type Model =
     {
         text: string
         plotScript: string option
+        messages: string list option
     }
 
 type Message =
@@ -22,6 +23,7 @@ let initModel =
     {
         text = "// TODO: examples"
         plotScript = None
+        messages = None
     }, Cmd.none
 
 let update (js: IJSRuntime) message model =
@@ -30,7 +32,12 @@ let update (js: IJSRuntime) message model =
     | PlotChart c -> 
         let chart = c |> Chart.WithId "results"
         { model with plotScript = Some (chart.GetPlottingJS()) }, Cmd.none
-    | Evaluate -> model, Cmd.none
+    | Evaluate -> 
+        match Evaluation.evaluate model.text with
+        | Evaluation.Message m -> { model with messages = Some [m] }, Cmd.none
+        | Evaluation.Exception ex -> { model with messages = Some [ ex.ToString() ] }, Cmd.none
+        | Evaluation.Errors errs -> { model with messages = errs |> Seq.map (fun e -> $"[{e.StartLine}] {e.Message}") |> Seq.toList |> Some }, Cmd.none
+        | Evaluation.Success chart -> model, Cmd.ofMsg (PlotChart chart)
 
 let view model dispatch =
     concat [
@@ -42,9 +49,11 @@ let view model dispatch =
         div [attr.id "controls"] [
             button [ on.click (fun _ -> dispatch Evaluate) ] [ text "Evaluate" ]
         ]
-        div [attr.id "results"] []
         cond model.plotScript <| function
-            | Some s -> script [] [ text s ]
+            | Some s -> concat [ div [attr.id "results"] [] ; script [] [ text s ] ] 
+            | None -> empty
+        cond model.messages <| function
+            | Some list -> div [attr.id "errors"] [ forEach list (fun m -> div [] [text m]) ]
             | None -> empty
     ]
 
@@ -54,3 +63,5 @@ type Application() =
     override this.Program =
         let update = update this.JSRuntime
         Program.mkProgram (fun _ -> initModel) update view
+        |> Program.withConsoleTrace
+        |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)

@@ -9,6 +9,7 @@ open DiceTracker
 open System
 
 let private config = FsiEvaluationSession.GetDefaultConfiguration()
+// specify fsi.exe here so that it doesn't try to call Process.*
 let private args = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-" |]
 
 let private checkWarnings (warnings: FSharpDiagnostic seq) =
@@ -28,28 +29,34 @@ let private checkEval (result, warnings) =
     checkResult result
 
 type EvaluationResult =
-    | Success of Chart
+    | Success of PlotlyChart
     | Errors of FSharpDiagnostic seq
     | Exception of exn
     | Message of string
 
 let evaluate expr : EvaluationResult =
-    use inStream = new StringReader("");
-    use outStream = new StringWriter();
-    use errStream = new StringWriter();
-    let session = FsiEvaluationSession.Create(config, args, inStream, outStream, errStream, collectible=true)
-
-    session.EvalInteractionNonThrowing("open DiceTracker") |> checkEval
-
-    let res, warnings = session.EvalInteractionNonThrowing(expr)
-    if not (Seq.isEmpty warnings) then
-        Errors warnings
-    else
-    match res with
-    | Choice2Of2 ex -> Exception ex
-    | Choice1Of2 None -> Message "no value returned"
-    | Choice1Of2 (Some v) ->
+    printfn "evaluating %s" expr
+    
     try
+        use inStream = new StringReader("");
+        use outStream = new StringWriter();
+        use errStream = new StringWriter();
+        let session = FsiEvaluationSession.Create(config, args, inStream, outStream, errStream, collectible=true)
+
+        session.EvalInteractionNonThrowing("#r \"netstandard\"") |> checkEval
+        session.EvalInteractionNonThrowing("#r \"System.Private.CoreLib\"") |> checkEval
+        session.EvalInteractionNonThrowing("#r \"FSharp.Core\"") |> checkEval
+        session.EvalInteractionNonThrowing("#r \"DiceTracker\"") |> checkEval
+        session.EvalInteractionNonThrowing("open DiceTracker") |> checkEval
+
+        let res, warnings = session.EvalInteractionNonThrowing(expr)
+        if not (Seq.isEmpty warnings) then
+            Errors warnings
+        else
+        match res with
+        | Choice2Of2 ex -> Exception ex
+        | Choice1Of2 None -> Message "no value returned"
+        | Choice1Of2 (Some v) ->
         let results =
             match v.ReflectionValue with
             | :? OutputValue as ov -> Processing.processOne ov |> Choice1Of2 

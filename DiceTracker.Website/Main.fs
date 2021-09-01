@@ -3,6 +3,7 @@
 open Elmish
 open Bolero
 open Bolero.Html
+open Bolero.Remoting.Client
 open Microsoft.JSInterop
 open XPlot.Plotly
 
@@ -10,7 +11,7 @@ open XPlot.Plotly
 type Model =
     {
         text: string
-        plotScript: string option
+        plotScript: (string * string) option
         messages: string list option
     }
 
@@ -18,6 +19,8 @@ type Message =
     | UpdateText of string
     | PlotChart of PlotlyChart
     | Evaluate
+    | EvalJs of string
+    | EvalFinished of unit
     
 let initModel =
     {
@@ -30,14 +33,15 @@ let update (js: IJSRuntime) message model =
     match message with
     | UpdateText t ->  { model with text = t }, Cmd.none
     | PlotChart c -> 
-        let chart = c |> Chart.WithId "results"
-        { model with plotScript = Some (chart.GetPlottingJS()) }, Cmd.none
+        { model with plotScript = Some (c.Id, c.GetPlottingJS()) }, Cmd.none
     | Evaluate -> 
         match Evaluation.evaluate model.text with
         | Evaluation.Message m -> { model with messages = Some [m] }, Cmd.none
         | Evaluation.Exception ex -> { model with messages = Some [ ex.ToString() ] }, Cmd.none
         | Evaluation.Errors errs -> { model with messages = errs |> Seq.map (fun e -> $"[{e.StartLine}] {e.Message}") |> Seq.toList |> Some }, Cmd.none
         | Evaluation.Success chart -> model, Cmd.ofMsg (PlotChart chart)
+    | EvalJs script -> model, Cmd.OfJS.perform js "eval" [| script |] EvalFinished
+    | EvalFinished() -> model, Cmd.none
 
 let view model dispatch =
     concat [
@@ -50,7 +54,9 @@ let view model dispatch =
             button [ on.click (fun _ -> dispatch Evaluate) ] [ text "Evaluate" ]
         ]
         cond model.plotScript <| function
-            | Some s -> concat [ div [attr.id "results"] [] ; script [] [ text s ] ] 
+            | Some(id, script) -> 
+                EvalJs script |> dispatch
+                concat [ div [attr.id id] [] ]
             | None -> empty
         cond model.messages <| function
             | Some list -> div [attr.id "errors"] [ forEach list (fun m -> div [] [text m]) ]

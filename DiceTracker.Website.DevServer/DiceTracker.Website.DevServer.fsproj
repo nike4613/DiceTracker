@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <Compile Include="Startup.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DiceTracker.Website\DiceTracker.Website.fsproj" />
+  </ItemGroup>
+    
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="5.0.2" />
+    <PackageReference Include="Bolero.HotReload.Server" Version="0.17.9" />
+    <PackageReference Include="Bolero.Server" Version="0.17.25" />
+    <PackageReference Include="Bolero.Templates" Version="0.17.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="5.0.9" />
+  </ItemGroup>
+  
+</Project>

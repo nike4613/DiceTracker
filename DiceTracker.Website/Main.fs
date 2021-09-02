@@ -19,6 +19,7 @@ type Message =
     | UpdateText of string
     | PlotChart of PlotlyChart
     | Evaluate
+    | EvaluateFinished of Evaluation.EvaluationResult
     | EvalJs of string
     | EvalFinished of unit
     
@@ -34,8 +35,9 @@ let update (js: IJSRuntime) message model =
     | UpdateText t ->  { model with text = t }, Cmd.none
     | PlotChart c -> 
         { model with plotScript = Some (c.Id, c.GetPlottingJS()) }, Cmd.none
-    | Evaluate -> 
-        match Evaluation.evaluate model.text with
+    | Evaluate -> model, Cmd.OfAsync.perform Evaluation.evaluate model.text EvaluateFinished
+    | EvaluateFinished result ->
+        match result with
         | Evaluation.Message m -> { model with messages = Some [m] }, Cmd.none
         | Evaluation.Exception ex -> { model with messages = Some [ ex.ToString() ] }, Cmd.none
         | Evaluation.Errors errs -> { model with messages = errs |> Seq.map (fun e -> $"[{e.StartLine}] {e.Message}") |> Seq.toList |> Some }, Cmd.none

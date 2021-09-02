@@ -1,0 +1,16 @@
+﻿<script src="${PlotlyUrl}"></script>
+<textarea id="editor" bind="${EditorText}"></textarea>
+<div id="controls">
+    <button onclick="${Evaluate}">Evaluate</button>
+</div>
+<div id="messages">
+    ${Messages}
+    <template id="CompilerMessage">
+        <a onclick="${Select}" class="compiler-message-link">
+            <div class="compiler-message ${Severity}"><b>(${StartLine},${StartColumn})-(${EndLine},${EndColumn})</b> ${Message}</div>
+        </a>
+    </template>
+    <template id="SimpleMessage">
+        <div class="compiler-message ${Severity}">${Message}</div>
+    </template>
+</div>

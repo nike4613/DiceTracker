@@ -13,6 +13,10 @@ type StringCallback(f: string -> unit) =
 module Callback =
     let ofFn f = DotNetObjectReference.Create(StringCallback f)
 
+module Action =
+    let ofFn f = Action(f)
+    let ofValFn f = Action<_>(f)
+
 type Delayer(durationInMs: int) =
 
     let mutable current: option<CancellationTokenSource> = None

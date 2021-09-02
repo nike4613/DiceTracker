@@ -14,8 +14,7 @@ open Microsoft.JSInterop
 type CompilerStatus =
     | Standby
     | Running
-    | Failed of FSharpDiagnostic[]
-    | NoResultMember
+    | Failed of Choice<FSharpDiagnostic[], string list>
     | Succeeded of Assembly * result:MemberInfo option * FSharpDiagnostic[]
 
 type FileResults =
@@ -125,10 +124,10 @@ type Compiler with
 
             let options = Compiler.mkOptions comp.checker outfile
             let! checkRes = comp.checker.ParseAndCheckProject(options)
-            if checkRes.HasCriticalErrors then return { comp with status = Failed checkRes.Diagnostics } else
+            if checkRes.HasCriticalErrors then return { comp with status = Failed <| Choice1Of2 checkRes.Diagnostics } else
             
             match findResultMember checkRes with
-            | None -> return { comp with status = NoResultMember }
+            | None -> return { comp with status = Failed <| Choice2Of2 ["No result member found"] }
             | Some minfo ->
 
             let! parseResult = comp.checker.ParseFile(inFile, SourceText.ofString source, FSharpParsingOptions.Default, cache=false)
@@ -136,9 +135,9 @@ type Compiler with
             sw.Stop()
             printfn "Compile took %A" sw.Elapsed
 
-            if isFailure errors || errCode <> 0 then return { comp with status = Failed errors } else
+            if isFailure errors || errCode <> 0 then return { comp with status = Failed <| Choice1Of2 errors } else
             match assembly with
-            | None -> return { comp with status = Failed [||] }
+            | None -> return { comp with status = Failed <| Choice2Of2 ["No assembly returned despite the apparently successful compilation"] }
             | Some assembly ->
 
             let diceModule = assembly.GetType(minfo.DeclaringEntity 

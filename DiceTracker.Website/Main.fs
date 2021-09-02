@@ -6,13 +6,16 @@ open Bolero.Html
 open Bolero.Remoting.Client
 open Microsoft.JSInterop
 open XPlot.Plotly
-
+open FSharp.Compiler.Diagnostics
 
 type Model =
     {
-        text: string
+        compiler: Compiler
+        source: string
         plotScript: (string * string) option
-        messages: string list option
+        compilerMessages: FSharpDiagnostic seq option
+        warnings: string list option
+        errors: string list option
     }
 
 type Message =
@@ -23,53 +26,67 @@ type Message =
     | EvalJs of string
     | EvalFinished of unit
     
-let initModel =
+let defaultSource = "module Dice = let result = ()"
+
+let initModel compiler source =
     {
-        text = "// TODO: examples"
+        compiler = compiler
+        source = source
         plotScript = None
-        messages = None
-    }, Cmd.none
+        compilerMessages = None
+        warnings = None
+        errors = None
+    }
 
 let update (js: IJSRuntime) message model =
     match message with
-    | UpdateText t ->  { model with text = t }, Cmd.none
+    | UpdateText t ->  { model with source = t }, Cmd.none
     | PlotChart c -> 
         { model with plotScript = Some (c.Id, c.GetPlottingJS()) }, Cmd.none
-    | Evaluate -> model, Cmd.OfAsync.perform Evaluation.evaluate model.text EvaluateFinished
-    | EvaluateFinished result ->
-        match result with
-        | Evaluation.Message m -> { model with messages = Some [m] }, Cmd.none
-        | Evaluation.Exception ex -> { model with messages = Some [ ex.ToString() ] }, Cmd.none
-        | Evaluation.Errors errs -> { model with messages = errs |> Seq.map (fun e -> $"[{e.StartLine}] {e.Message}") |> Seq.toList |> Some }, Cmd.none
-        | Evaluation.Success chart -> model, Cmd.ofMsg (PlotChart chart)
+    | Evaluate -> model, Cmd.OfAsync.perform Evaluation.evaluate model.source EvaluateFinished
+    | EvaluateFinished result -> model, Cmd.none
     | EvalJs script -> model, Cmd.OfJS.perform js "eval" [| script |] EvalFinished
     | EvalFinished() -> model, Cmd.none
 
-let view model dispatch =
-    concat [
-        script [ attr.src Html.DefaultPlotlySrc ] []
-        textarea [
-            attr.id "editor"
-            bind.input.string model.text (UpdateText >> dispatch)
-        ] []
-        div [attr.id "controls"] [
-            button [ on.click (fun _ -> dispatch Evaluate) ] [ text "Evaluate" ]
-        ]
-        cond model.plotScript <| function
-            | Some(id, script) -> 
-                EvalJs script |> dispatch
-                concat [ div [attr.id id] [] ]
-            | None -> empty
-        cond model.messages <| function
-            | Some list -> div [attr.id "errors"] [ forEach list (fun m -> div [] [text m]) ]
-            | None -> empty
-    ]
+type Main = Template<"main.html">
 
-type Application() =
-    inherit ProgramComponent<Model, Message>()
+let compilerMsg (msg: FSharpDiagnostic) =
+    Main.CompilerMessage()
+        .Severity(string msg.Severity)
+        .StartLine(string msg.StartLine)
+        .StartColumn(string msg.StartColumn)
+        .EndLine(string msg.EndLine)
+        .EndColumn(string msg.EndColumn)
+        .Message(msg.Message)
+        .Select(fun _ -> ())
+        .Elt()
 
-    override this.Program =
-        let update = update this.JSRuntime
-        Program.mkProgram (fun _ -> initModel) update view
-        |> Program.withConsoleTrace
-        |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)
+let simpleMsg (severity: string) (msg: string) =
+    Main.SimpleMessage()
+        .Severity(severity)
+        .Message(msg)
+        .Elt()
+
+let view (model: Model) dispatch =
+    Main()
+        .PlotlyUrl("placeholder")
+        .EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
+        .Evaluate(fun _ -> dispatch Evaluate)
+        .Messages(concat [
+            text <|
+                match model.compiler.status with
+                | CompilerStatus.Standby -> "Ready."
+                | CompilerStatus.Running -> "Compiling..."
+                | CompilerStatus.Succeeded _ -> "Compilation finished."
+                | CompilerStatus.Failed _ -> "Compilation failed."
+            cond model.errors <| function
+                | None -> empty
+                | Some msgs -> forEach msgs (simpleMsg "Error")
+            cond model.warnings <| function
+                | None -> empty
+                | Some msgs -> forEach msgs (simpleMsg "Warning")
+            cond model.compilerMessages <| function
+                | None -> empty
+                | Some msgs -> forEach (msgs |> Seq.sortBy (fun m -> m.Severity)) (compilerMsg)
+        ])
+        .Elt()

@@ -2,8 +2,10 @@
 
 open System
 open System.IO
+open System.Diagnostics
 open System.Reflection
 open FSharp.Compiler
+open FSharp.Compiler.Text
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Diagnostics
 open FSharp.Compiler.CodeAnalysis
@@ -13,7 +15,8 @@ type CompilerStatus =
     | Standby
     | Running
     | Failed of FSharpDiagnostic[]
-    | Succeeded of string * FSharpDiagnostic[]
+    | NoResultMember
+    | Succeeded of Assembly * result:MemberInfo option * FSharpDiagnostic[]
 
 type FileResults =
     {
@@ -37,6 +40,17 @@ module Compiler =
     let project = "/tmp/input.fsproj"
     let inFile = "/tmp/input.fs"
     let outFile = "/tmp/output.dll"
+
+    let basicDependencies = 
+        [
+            "FSharp.Core"
+            "mscorlib"
+            "netstandard"
+            "System"
+            "System.Core"
+            "System.IO"
+            "System.Runtime"
+        ]
 
     let mkOptions (checker: FSharpChecker) outFile =
         checker.GetProjectOptionsFromCommandLineArgs(project, [|
@@ -68,11 +82,7 @@ module Compiler =
         let! checkProjRes = checker.ParseAndCheckProject(options)
         let! (parseRes, checkRes) = checker.GetBackgroundCheckResultsForFileInProject(inFile, options)
         let! (diagnostics, code, assembly) = checker.CompileToDynamicAssembly([parseRes.ParseTree], "output", 
-                                                [
-                                                    "FSharp.Core";"mscorlib";"netstandard"
-                                                    "System";"System.Core";"System.IO";"System.Runtime"
-                                                ],
-                                                None, noframework = true)
+                                                basicDependencies, None, noframework = true)
         return {
             checker = checker
             options = options
@@ -90,7 +100,7 @@ module Compiler =
     let resultExpectedTypeMany = "System.Collections.Generic.IEnumerable<" + resultExpectedTypeOne + ">"
 
     let findResultMember (checkRes: FSharpCheckProjectResults) =
-        match checkRes.AssemblySignature.FindEntityByPath ["System"] with
+        match checkRes.AssemblySignature.FindEntityByPath ["Dice"] with
         | None -> None
         | Some ent ->
             ent.MembersFunctionsAndValues
@@ -102,3 +112,44 @@ module Compiler =
             ) |> Seq.tryExactlyOne
 
     let checkDelay = Delayer(500) // the delayer to use for checking user input
+
+open Compiler
+
+type Compiler with
+    member comp.Run (source: string) =
+        { comp with status = Running},
+        fun () -> async {
+            let sw = Stopwatch.StartNew()
+            let outfile = $"/tmp/out{comp.sequence}.dll"
+            File.WriteAllText(inFile, source)
+
+            let options = Compiler.mkOptions comp.checker outfile
+            let! checkRes = comp.checker.ParseAndCheckProject(options)
+            if checkRes.HasCriticalErrors then return { comp with status = Failed checkRes.Diagnostics } else
+            
+            match findResultMember checkRes with
+            | None -> return { comp with status = NoResultMember }
+            | Some minfo ->
+
+            let! parseResult = comp.checker.ParseFile(inFile, SourceText.ofString source, FSharpParsingOptions.Default, cache=false)
+            let! errors, errCode, assembly = comp.checker.CompileToDynamicAssembly([parseResult.ParseTree], $"output{comp.sequence}", basicDependencies, None, noframework=true)
+            sw.Stop()
+            printfn "Compile took %A" sw.Elapsed
+
+            if isFailure errors || errCode <> 0 then return { comp with status = Failed errors } else
+            match assembly with
+            | None -> return { comp with status = Failed [||] }
+            | Some assembly ->
+
+            let diceModule = assembly.GetType(minfo.DeclaringEntity 
+                                                |> Option.map (fun e -> e.CompiledName)
+                                                |> Option.orElse (Some "Dice")
+                                                |> Option.get) |> Option.ofObj
+            let resultMember = diceModule |> Option.map (fun m -> m.GetMember(minfo.CompiledName, BindingFlags.Static ||| BindingFlags.Public))
+            let resultMember = resultMember |> Option.map Array.tryHead |> Option.flatten
+
+            return 
+                { comp with
+                    sequence = comp.sequence + 1
+                    status = Succeeded(assembly, resultMember, errors) }
+        }

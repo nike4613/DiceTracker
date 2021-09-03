@@ -9,17 +9,19 @@
   <ItemGroup>
     <Compile Include="Startup.fs" />
   </ItemGroup>
+  
+  <ItemGroup />
 
   <ItemGroup>
     <ProjectReference Include="..\DiceTracker.Website\DiceTracker.Website.fsproj" />
   </ItemGroup>
     
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="5.0.2" />
+    <PackageReference Update="FSharp.Core" Version="6.0.0-beta.21452.7" />
     <PackageReference Include="Bolero.HotReload.Server" Version="0.17.9" />
     <PackageReference Include="Bolero.Server" Version="0.17.25" />
     <PackageReference Include="Bolero.Templates" Version="0.17.12" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="5.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="6.0.0-preview.7.21378.6" />
   </ItemGroup>
   
 </Project>

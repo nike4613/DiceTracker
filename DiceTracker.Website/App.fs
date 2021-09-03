@@ -19,7 +19,7 @@ type AppMessage =
     | Message of Main.Message
     | Error of exn
 
-let update (js: IJSInProcessRuntime) message model =
+let update (js: IJSRuntime) message model =
     match message with
     | InitCompiler ->
         model, Cmd.OfAsync.either (Async.WithYield << Compiler.create) Main.defaultSource CompilerInitialized Error
@@ -46,7 +46,7 @@ type Application() =
     inherit ProgramComponent<AppModel, AppMessage>()
 
     override this.Program =
-        let update = update (this.JSRuntime :?> _)
+        let update = update this.JSRuntime
         Program.mkProgram (fun _ -> Initializing, Cmd.ofMsg InitCompiler) update view
         |> Program.withConsoleTrace
         |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)

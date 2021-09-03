@@ -10,7 +10,27 @@ open Microsoft.AspNetCore.StaticFiles
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.FileProviders
 open DiceTracker.Website
+open Bolero
+open Bolero.Server
+open Bolero.Templating
+open Bolero.Html
+open Bolero.Server.Html
 open Bolero.Templating.Server
+
+module Index =
+    let page = doctypeHtml [] [
+        head [] [
+            meta [attr.charset "UTF-8"]
+            meta [attr.name "viewport"; attr.content "width=device-width, initial-scale=1.0"]
+            title [] [text "DiceTracker"]
+            ``base`` [attr.href "/"]
+            link [attr.rel "stylesheet"; attr.href "https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css"]
+            link [attr.rel "stylesheet"; attr.href "index.css"]
+        ]
+        body[] [
+            div [attr.id "main"] [rootComp<App.Application>]
+        ]
+    ]
 
 type Startup() =
 
@@ -22,20 +42,30 @@ type Startup() =
     let fileProvider path = new PhysicalFileProvider(path)
 
     member this.ConfigureServices(services: IServiceCollection) =
-        services.AddControllers() |> ignore
+        services.AddMvc() |> ignore
+        //services.AddControllers() |> ignore
+        services.AddServerSideBlazor() |> ignore
+        services.AddBoleroHost() |> ignore
+#if DEBUG
         services.AddHotReload(clientProjPath) |> ignore
+#endif
 
     member this.Configure(app: IApplicationBuilder, env: IWebHostEnvironment) =
-        app.UseStaticFiles(
+        app(*.UseStaticFiles(
             StaticFileOptions(
                 FileProvider = fileProvider (clientProjPath </> "wwwroot"),
-                ContentTypeProvider = contentTypeProvider))
+                ContentTypeProvider = contentTypeProvider))*)
+            .UseStaticFiles()
             .UseRouting()
             .UseBlazorFrameworkFiles()
             .UseEndpoints(fun endpoints ->
+#if DEBUG
                 endpoints.UseHotReload()
-                endpoints.MapControllers() |> ignore
-                endpoints.MapFallbackToFile("index.html") |> ignore)
+#endif
+                //endpoints.MapControllers() |> ignore
+                endpoints.MapBlazorHub() |> ignore
+                endpoints.MapFallbackToBolero(Index.page) |> ignore
+                (*endpoints.MapFallbackToFile("index.html") |> ignore*))
         |> ignore
 
 module Program =
@@ -44,6 +74,7 @@ module Program =
     let main args =
         WebHost
             .CreateDefaultBuilder(args)
+            .UseStaticWebAssets()
             .UseStartup<Startup>()
             .Build()
             .Run()

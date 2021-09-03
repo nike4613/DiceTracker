@@ -21,10 +21,12 @@ type Model =
 type Message =
     | UpdateText of string
     | PlotChart of PlotlyChart
-    | Evaluate
-    | EvaluateFinished of Evaluation.EvaluationResult
+    | Compile
+    | Compiled of Compiler
+    | Evaluate of System.Reflection.MemberInfo
     | EvalJs of string
     | EvalFinished of unit
+    | Error of exn
     
 let defaultSource = "module Dice = let result = ()"
 
@@ -43,10 +45,46 @@ let update (js: IJSRuntime) message model =
     | UpdateText t ->  { model with source = t }, Cmd.none
     | PlotChart c -> 
         { model with plotScript = Some (c.Id, c.GetPlottingJS()) }, Cmd.none
-    | Evaluate -> model, Cmd.OfAsync.perform Evaluation.evaluate model.source EvaluateFinished
-    | EvaluateFinished result -> model, Cmd.none
-    | EvalJs script -> model, Cmd.OfJS.perform js "eval" [| script |] EvalFinished
+    | Compile ->
+        let compiler, run = model.compiler.Run model.source
+        { model with compiler = compiler }, Cmd.OfAsync.either (run >> Async.WithYield) () Compiled Error
+    | Compiled ({ status = Succeeded(_, Some memb, msgs) } as compiler) ->
+        { model with
+            compiler = compiler
+            compilerMessages = Some (msgs :> _)
+            warnings = None
+            errors = None }, Cmd.ofMsg (Evaluate memb)
+    | Compiled ({ status = Succeeded(_, None, msgs) } as compiler) ->
+        { model with
+            compiler = compiler
+            compilerMessages = Some (msgs :> _)
+            warnings = None
+            errors = Some ["No value Dice.result defined."] }, Cmd.none
+    | Compiled ({ status = Failed (Choice1Of2 msgs) } as compiler) ->
+        { model with
+            compiler = compiler
+            compilerMessages = Some (msgs :> _)
+            warnings = None
+            errors = None }, Cmd.none
+    | Compiled ({ status = Failed (Choice2Of2 msgs) } as compiler) ->
+        { model with
+            compiler = compiler
+            compilerMessages = None
+            warnings = None
+            errors = Some msgs }, Cmd.none
+    | Compiled compiler ->
+        { model with
+            compiler = compiler
+            compilerMessages = None
+            warnings = None
+            errors = None }, Cmd.none
+    | Evaluate memb -> { model with warnings = Some ["todo: evaluate member " + string memb] }, Cmd.none
+    | EvalJs script -> model, Cmd.OfJS.either js "eval" [| script |] EvalFinished Error
     | EvalFinished() -> model, Cmd.none
+    | Error exn -> { model with 
+                        compilerMessages = None
+                        warnings = None
+                        errors = Some [ string exn ] }, Cmd.none
 
 type Main = Template<"main.html">
 
@@ -71,7 +109,7 @@ let view (model: Model) dispatch =
     Main()
         .PlotlyUrl("placeholder")
         .EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
-        .Evaluate(fun _ -> dispatch Evaluate)
+        .Evaluate(fun _ -> dispatch Compile)
         .Messages(concat [
             text <|
                 match model.compiler.status with

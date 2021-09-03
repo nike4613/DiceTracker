@@ -7,6 +7,7 @@ open Elmish
 open Bolero.Html
 open Bolero.Remoting.Client
 open Bolero.Templating.Client
+open System.Diagnostics
 
 type AppModel =
     | Initializing
@@ -21,10 +22,7 @@ type AppMessage =
 let update (js: IJSInProcessRuntime) message model =
     match message with
     | InitCompiler ->
-        model, Cmd.OfAsync.either (fun src -> async {
-            let! _ = Async.Sleep(10)
-            return! Compiler.create src
-        }) Main.defaultSource CompilerInitialized Error
+        model, Cmd.OfAsync.either (Async.WithYield << Compiler.create) Main.defaultSource CompilerInitialized Error
     | CompilerInitialized compiler ->
         Running (Main.initModel compiler Main.defaultSource), Cmd.none
     | Message msg ->
@@ -34,7 +32,7 @@ let update (js: IJSInProcessRuntime) message model =
             let model, cmd = Main.update js msg model
             Running model, Cmd.map Message cmd
     | Error exn ->
-        eprintfn "%A" exn
+        eprintfn "%A\nil offsets: %A" exn ((StackTrace exn).GetFrames() |> Array.map (fun e -> e.GetILOffset()) |> Array.toList)
         model, Cmd.none
 
 type Loader = Template<"loading.html">

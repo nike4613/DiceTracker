@@ -17,6 +17,10 @@ module Action =
     let ofFn f = Action(f)
     let ofValFn f = Action<_>(f)
 
+module Async =
+    let WithYield (a: Async<'T>) : Async<'T> =
+        async.Bind(Async.Sleep(10), fun _ -> a)
+
 type Delayer(durationInMs: int) =
 
     let mutable current: option<CancellationTokenSource> = None

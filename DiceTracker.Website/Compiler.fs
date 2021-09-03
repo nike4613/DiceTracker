@@ -35,6 +35,9 @@ type Compiler =
     }
 
 module Compiler =
+
+    // force the F# compiler to use /tmp/ as its bindir
+    do Environment.SetEnvironmentVariable("FSHARP_COMPILER_BIN", "/tmp/")
     
     let project = "/tmp/input.fsproj"
     let inFile = "/tmp/input.fs"
@@ -53,23 +56,17 @@ module Compiler =
 
     let mkOptions (checker: FSharpChecker) outFile =
         checker.GetProjectOptionsFromCommandLineArgs(project, [|
-            "--simpleresolution"
-            "--optimize-"
-            "--noframework"
-            "--fullpaths"
-            "--warn:3"
-            "--target:dll"
-            inFile
-            // Necessary standard library
-            "-r:/tmp/FSharp.Core.dll"
-            "-r:/tmp/mscorlib.dll"
-            "-r:/tmp/netstandard.dll"
-            "-r:/tmp/System.dll"
-            "-r:/tmp/System.Core.dll"
-            "-r:/tmp/System.IO.dll"
-            "-r:/tmp/System.Numerics.dll"
-            "-r:/tmp/System.Runtime.dll"
-            "-o:" + outFile
+            yield! [|
+                "--simpleresolution"
+                "--optimize-"
+                "--noframework"
+                "--fullpaths"
+                "--warn:3"
+                "--target:dll"
+                inFile
+            |]
+            yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:/tmp/{s}.dll")
+            yield "-o:" + outFile
         |])
 
     let create source = async {

@@ -43,7 +43,7 @@ type Startup() =
 
     member this.ConfigureServices(services: IServiceCollection) =
         services.AddMvc() |> ignore
-        //services.AddControllers() |> ignore
+        services.AddControllers() |> ignore
         services.AddServerSideBlazor() |> ignore
         services.AddBoleroHost() |> ignore
 #if DEBUG
@@ -51,10 +51,10 @@ type Startup() =
 #endif
 
     member this.Configure(app: IApplicationBuilder, env: IWebHostEnvironment) =
-        app(*.UseStaticFiles(
+        app.UseStaticFiles(
             StaticFileOptions(
                 FileProvider = fileProvider (clientProjPath </> "wwwroot"),
-                ContentTypeProvider = contentTypeProvider))*)
+                ContentTypeProvider = contentTypeProvider))
             .UseStaticFiles()
             .UseRouting()
             .UseBlazorFrameworkFiles()
@@ -62,10 +62,11 @@ type Startup() =
 #if DEBUG
                 endpoints.UseHotReload()
 #endif
-                //endpoints.MapControllers() |> ignore
+                endpoints.MapControllers() |> ignore
                 endpoints.MapBlazorHub() |> ignore
-                endpoints.MapFallbackToBolero(Index.page) |> ignore
-                (*endpoints.MapFallbackToFile("index.html") |> ignore*))
+                //endpoints.MapFallbackToBolero(Index.page) |> ignore
+                endpoints.MapFallbackToFile("index.html") |> ignore
+            )
         |> ignore
 
 module Program =

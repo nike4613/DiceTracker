@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<linker>
+  <!-- Our application -->
+  <assembly fullname="DiceTracker.Website"></assembly>
+  
+  <!-- Assemblies needed by FCS or that we want referenced, but illink would otherwise remove -->
+  <assembly fullname="FSharp.Core"></assembly>
+  <assembly fullname="System"></assembly>
+  <assembly fullname="System.Core"></assembly>
+  <assembly fullname="System.Collections"></assembly>
+  <assembly fullname="System.Runtime"></assembly>
+  <assembly fullname="System.Runtime.Extensions"></assembly>
+</linker>

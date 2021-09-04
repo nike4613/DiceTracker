@@ -50,7 +50,6 @@ module Compiler =
             "netstandard"
             "System"
             "System.Core"
-            "System.IO"
             "System.Runtime"
         ]
 
@@ -62,7 +61,7 @@ module Compiler =
                 "--noframework"
                 "--fullpaths"
                 "--warn:3"
-                "--target:dll"
+                "--target:library"
                 inFile
             |]
             yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:/tmp/{s}.dll")

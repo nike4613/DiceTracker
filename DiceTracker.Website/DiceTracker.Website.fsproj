@@ -3,6 +3,9 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <BoleroStripAssemblies>false</BoleroStripAssemblies>
+    <BlazorWebAssemblyEnableLinking>true</BlazorWebAssemblyEnableLinking>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,12 +19,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="6.0.0-beta.21452.7" />
+    <BlazorLinkerDescriptor Include="linker.xml" />
+    <Content Include="loading.html" />
+    <Content Include="main.html" />
+    <Folder Include="wwwroot\monaco\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="5.0.3-dev.final" />
     <PackageReference Include="Bolero" Version="0.17.25" />
     <PackageReference Include="Bolero.Build" Version="0.17.25" />
     <PackageReference Include="Bolero.HotReload" Version="0.17.9" />
     <PackageReference Include="Bolero.Templates" Version="0.17.12" />
-    <PackageReference Include="FSharp.Compiler.Service" Version="41.0.0-preview.21452.7" />
+    <PackageReference Include="FSharp.Compiler.Service" Version="40.0.1-dev.final" />
     <PackageReference Include="XPlot.Plotly" Version="4.0.3" />
   </ItemGroup>
 
@@ -31,12 +41,6 @@
 
   <ItemGroup>
     <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="loading.html" />
-    <Content Include="main.html" />
-    <Folder Include="wwwroot\monaco\" />
   </ItemGroup>
 
 </Project>

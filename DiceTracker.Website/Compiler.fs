@@ -98,15 +98,16 @@ module Compiler =
     let resultExpectedTypeOne = "DiceTracker.Probability.OutputValue"
     let resultExpectedTypeMany = "System.Collections.Generic.IEnumerable<" + resultExpectedTypeOne + ">"
 
-    let findResultMember (checkRes: FSharpCheckProjectResults) =
-        match checkRes.AssemblySignature.FindEntityByPath ["Dice"] with
+    let findResultMember (checkRes: FSharpCheckFileResults) =
+        match checkRes.PartialAssemblySignature.FindEntityByPath ["Dice"] with
         | None -> None
         | Some ent ->
             ent.MembersFunctionsAndValues
-            |> Seq.filter (fun v -> 
+            |> Seq.filter (fun v ->
+                printfn "%A (%A) -> %s : %s" v (v.TryGetFullDisplayName ()) v.CompiledName (v.FullType.Format FSharpDisplayContext.Empty)
                 v.IsValue &&
                 v.LogicalName = "result" &&
-                    let typen = v.FullType.Format(FSharpDisplayContext.Empty) 
+                    let typen = v.FullType.Format FSharpDisplayContext.Empty
                     typen = resultExpectedTypeOne || typen = resultExpectedTypeMany
             ) |> Seq.tryExactlyOne
 
@@ -122,19 +123,25 @@ type Compiler with
             let outfile = $"/tmp/out{comp.sequence}.dll"
             File.WriteAllText(inFile, source)
 
+            let options = Compiler.mkOptions comp.checker outfile
+
             printfn "Starting compilation"
 
-            let options = Compiler.mkOptions comp.checker outfile
-            let! checkRes = comp.checker.ParseAndCheckProject(options)
-            if checkRes.HasCriticalErrors then return { comp with status = Failed <| Choice1Of2 checkRes.Diagnostics } else
-            
+            let source = SourceText.ofString source
+            let! parseResult = comp.checker.ParseFile(inFile, source, FSharpParsingOptions.Default, cache=false)
+            let! checkResult = comp.checker.CheckFileInProject(parseResult, inFile, comp.sequence, source, options)
+            match checkResult with
+            | FSharpCheckFileAnswer.Aborted -> return { comp with status = Failed <| Choice2Of2 ["File check aborted"] }
+            | FSharpCheckFileAnswer.Succeeded checkResult ->
+
+            if isFailure checkResult.Diagnostics then return { comp with status = Failed <| Choice1Of2 checkResult.Diagnostics } else
+                
             printfn "Finished first check."
 
-            match findResultMember checkRes with
+            match findResultMember checkResult with
             | None -> return { comp with status = Failed <| Choice2Of2 ["No result member found"] }
             | Some minfo ->
 
-            let! parseResult = comp.checker.ParseFile(inFile, SourceText.ofString source, FSharpParsingOptions.Default, cache=false)
             let! errors, errCode, assembly = comp.checker.CompileToDynamicAssembly([parseResult.ParseTree], $"output{comp.sequence}", basicDependencies, None, noframework=true)
             sw.Stop()
             printfn "Compile took %A" sw.Elapsed

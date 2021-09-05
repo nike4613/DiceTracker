@@ -7,8 +7,6 @@ module Processing =
 
     module private Internal =
 
-        type AnyFunction = | BoolFunc of BoolFunction | IntFunc of Function
-
         let swap f a b = f b a
         let inline tmap f1 f2 (a, b) = (f1 a, f2 b)
         let inline tmap1 f (a, b) = (f a, b)
@@ -20,6 +18,7 @@ module Processing =
             | RDiff of ProbabilityResultResult * ProbabilityResultResult
             | RMul of ProbabilityResultResult * ProbabilityResultResult
             | RDiv of ProbabilityResultResult * ProbabilityResultResult
+            | ArgValue of index:int
 
         type BoolResultResult =
             | BoolValue of bool
@@ -42,11 +41,7 @@ module Processing =
         type NormalResults = ProbResults<ProbabilityResultResult>
         type BoolResults = ProbResults<BoolResultResult>
 
-        type AnyProbResults = | AnyNormalResults of NormalResults | AnyBoolResults of BoolResults
-
         type BindingSet = Map<int, NormalResults>
-
-        type FunctionCache = Map<AnyFunction, AnyProbResults>
     
         let rec tryGetValueRInt res =
             let binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
@@ -56,11 +51,18 @@ module Processing =
             | RDiff(a, b) -> binop (-) a b
             | RMul(a, b) -> binop (*) a b
             | RDiv(a, b) -> binop (/) a b
+            | ArgValue _ -> None
 
         let rec reduceResult res =
+            let binop op a b = op ((reduceResult a), (reduceResult b))
             match tryGetValueRInt res, res with
-            | Some i, _ -> IntValue i
-            | _, a -> a
+            | Some i, _
+            | _, IntValue i -> IntValue i
+            | _, RSum(a, b) -> binop RSum a b
+            | _, RDiff(a, b) -> binop RDiff a b
+            | _, RMul(a, b) -> binop RMul a b
+            | _, RDiv(a, b) -> binop RDiv a b
+            | _, ArgValue i -> ArgValue i
 
         and tryGetValueRBool res =
             let binop getVal op a b = Option.map2 op (getVal a) (getVal b)
@@ -82,7 +84,8 @@ module Processing =
 
         and reduceBoolResult res =
             match tryGetValueRBool res, res with
-            | Some i, _ -> BoolValue i
+            | Some v, _
+            | _, BoolValue v -> BoolValue v
             | _, REquals(a, b) -> REquals(reduceResult a, reduceResult b)
             | _, RNEquals(a, b) -> RNEquals(reduceResult a, reduceResult b)
             | _, RGt(a, b) -> RGt(reduceResult a, reduceResult b)
@@ -99,7 +102,6 @@ module Processing =
             | _, RNot(RLte(a, b)) -> RGt(reduceResult a, reduceResult b)
             | _, RNot(RNot(a)) -> a
             | _, RNot a -> RNot(reduceBoolResult a)
-            | _, a -> a
 
         let rec reduceProb prob =
             let rec tryGetValue p =
@@ -110,51 +112,35 @@ module Processing =
                 | PProd(a, b) -> binop (*) a b 
 
             match tryGetValue prob, prob with
-            | Some v, _ -> Probability v
+            | Some v, _
+            | _, Probability v -> Probability v
             | _, PSum(a, b) -> PSum(reduceProb a, reduceProb b)
             | _, PProd(a, b) -> PProd(reduceProb a, reduceProb b)
-            | _, a -> a
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
-        let rec buildCallInt args funcVal = 
-            let binop op a b = op (buildCallInt args a, buildCallInt args b)
-            match funcVal with
-            | Argument i -> List.item i args
-            | DieValue _ -> funcVal
-            | Number _ -> funcVal
-            | Sum(a, b) -> binop Sum a b
-            | Difference(a, b) -> binop Difference a b
-            | Multiply(a, b) -> binop Multiply a b
-            | Divide(a, b) -> binop Divide a b
-            | Condition(c, a, b) -> Condition(buildCallBool args c, buildCallInt args a, buildCallInt args b)
-            | FunctionCall(func, fargs) -> FunctionCall(func, fargs |> List.map (buildCallInt args))
-            | Binding(i, v, r) -> Binding(i, buildCallInt args v, buildCallInt args r)
-            | BoundValue _ -> funcVal
+        let rec buildCallInt args funcVal : NormalResults = 
+            failwith "not implemented"
 
-        and buildCallBool args funcVal =
-            let binop build op a b = op (build args a, build args b)
-            match funcVal with
-            | Literal _ -> funcVal
-            | BoolBinding(i, v, r) -> BoolBinding(i, buildCallInt args v, buildCallBool args r)
-            | BoolCondition(c, a, b) -> BoolCondition(buildCallBool args c, buildCallBool args a, buildCallBool args b)
-            | Equals(a, b) -> binop buildCallInt Equals a b
-            | NotEquals(a, b) -> binop buildCallInt NotEquals a b
-            | GreaterThan(a, b) -> binop buildCallInt GreaterThan a b
-            | LessThan(a, b) -> binop buildCallInt LessThan a b
-            | GreaterThanEqual(a, b) -> binop buildCallInt GreaterThanEqual a b
-            | LessThanEqual(a, b) -> binop buildCallInt LessThanEqual a b
-            | BoolNot b -> BoolNot(buildCallBool args b)
-            | BoolAnd(a, b) -> binop buildCallBool BoolAnd a b
-            | BoolOr(a, b) -> binop buildCallBool BoolOr a b
-            | BoolFunctionCall(func, fargs) -> BoolFunctionCall(func, fargs |> List.map (buildCallInt args))
+        and buildCallBool args funcVal : BoolResults =
+            failwith "not implemented"
+            
+        type FunctionCache = Map<Function, NormalResults> * Map<BoolFunction, BoolResults>
+        module FunctionCache =
+            let empty : FunctionCache = Map.empty, Map.empty
 
-        let findOrAdd key mkFunc map =
-            match Map.tryFind key map with
-            | Some v -> v, map
+        let findOrAdd1 key mkFunc (cache : FunctionCache) =
+            match Map.tryFind key (fst cache) with
+            | Some v -> v, cache
             | None ->
-                let (v, map) = mkFunc key map
-                v, (Map.add key v map)
+                let (v, cache) = mkFunc key cache
+                v, (Map.add key v (fst cache), snd cache)
+        let findOrAdd2 key mkFunc (cache : FunctionCache) =
+            match Map.tryFind key (snd cache) with
+            | Some v -> v, cache
+            | None ->
+                let (v, cache) = mkFunc key cache
+                v, (fst cache, Map.add key v (snd cache))
 
         let rec analyze bindings cache value : NormalResults * FunctionCache =
             let binop op a b =
@@ -165,7 +151,7 @@ module Processing =
                 |> buildMap, cache
             match value with
             | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
-            | Argument i -> raise (exn "Unbound argument found in analysis")
+            | Argument i -> Map.add (ArgValue i) (Probability 1.) Map.empty, cache
             | DieValue { size = n } -> seq { for i in 1..n -> IntValue i, Probability (1./(float n)) } |> NormalResults, cache
             | Sum(a, b) -> binop RSum a b
             | Difference(a, b) -> binop RDiff a b
@@ -186,9 +172,9 @@ module Processing =
                 result |> Seq.concat |> buildMap, cache
 
             | FunctionCall(func, args) ->
-                // TODO: make functions get analyzed independent of arguments to facilitate better binding
-                let value = buildCallInt args func.value
-                analyze bindings cache value
+                let func, cache = maybeAnalyzeFuncInt cache func
+                let args, cache = args |> List.mapFold (analyze bindings) cache
+                buildCallInt args func, cache
 
             | Binding(i, value, expr) ->
                 let (value, cache) = analyze bindings cache value
@@ -235,12 +221,18 @@ module Processing =
                 result |> Seq.concat |> buildMap, cache
 
             | BoolFunctionCall(func, args) ->
-                let value = buildCallBool args func.value
-                analyzeBool bindings cache value
+                let func, cache = maybeAnalyzeFuncBool cache func
+                let args, cache = args |> List.mapFold (analyze bindings) cache
+                buildCallBool args func, cache
 
             | BoolBinding(i, value, expr) ->
                 let (value, cache) = analyze bindings cache value
                 analyzeBool (Map.add i value bindings) cache expr
+
+        and maybeAnalyzeFuncInt cache (func: Function) =
+            findOrAdd1 func (fun func cache -> analyze Map.empty cache func.value) cache
+        and maybeAnalyzeFuncBool cache (func: BoolFunction) =
+            findOrAdd2 func (fun func cache -> analyzeBool Map.empty cache func.value) cache
             
         let processWithName (cache: FunctionCache) name prob =
             let (result, cache) = analyze Map.empty cache prob
@@ -265,10 +257,10 @@ module Processing =
         |> Seq.mapi (fun i v -> (i, v)) 
         |> Seq.fold (fun (sets, cache) (i, v) -> 
                         let (name, r, cache) = processOneImpl cache i v
-                        (name, r)::sets, cache) ([], Map.empty)
+                        (name, r)::sets, cache) ([], Internal.FunctionCache.empty)
         |> fst
         |> List.rev
         |> Map
 
     /// Processes a single OutputValue into its output probabilities
-    let processOne = processOneImpl Map.empty 1 >> fun (name, b, _) -> Map.add name b Map.empty
+    let processOne = processOneImpl Internal.FunctionCache.empty 1 >> fun (name, b, _) -> Map.add name b Map.empty

@@ -28,7 +28,7 @@ type Message =
     | EvalFinished of unit
     | Error of exn
     
-let defaultSource = "module Dice = let result = ()"
+let defaultSource = "module Dice\nlet result = ()"
 
 let initModel compiler source =
     {
@@ -81,10 +81,12 @@ let update (js: IJSRuntime) message model =
     | Evaluate memb -> { model with warnings = Some ["todo: evaluate member " + string memb] }, Cmd.none
     | EvalJs script -> model, Cmd.OfJS.either js "eval" [| script |] EvalFinished Error
     | EvalFinished() -> model, Cmd.none
-    | Error exn -> { model with 
-                        compilerMessages = None
-                        warnings = None
-                        errors = Some [ string exn ] }, Cmd.none
+    | Error exn ->
+        eprintfn "%s" (Utils.getErrorMessage exn)
+        { model with 
+            compilerMessages = None
+            warnings = None
+            errors = Some [ Utils.getErrorMessage exn ] }, Cmd.none
 
 type Main = Template<"main.html">
 

@@ -39,18 +39,22 @@ module Compiler =
     // force the F# compiler to use /tmp/ as its bindir
     do Environment.SetEnvironmentVariable("FSHARP_COMPILER_BIN", "/tmp/")
     
+    let libPath = "/tmp/lib/"
+
     let project = "/tmp/input.fsproj"
     let inFile = "/tmp/input.fs"
     let outFile = "/tmp/output.dll"
 
     let basicDependencies = 
         [
+            "DiceTracker"
             "FSharp.Core"
             "mscorlib"
             "netstandard"
             "System"
             "System.Core"
             "System.Runtime"
+            "System.Private.CoreLib"
         ]
 
     let mkOptions (checker: FSharpChecker) outFile =
@@ -64,12 +68,12 @@ module Compiler =
                 "--target:library"
                 inFile
             |]
-            yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:/tmp/{s}.dll")
+            yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:{libPath}{s}.dll")
             yield "-o:" + outFile
         |])
 
     let create source = async {
-        let checker = FSharpChecker.Create(keepAssemblyContents = true, suggestNamesForErrors = true)
+        let checker = FSharpChecker.Create(keepAssemblyContents = false, suggestNamesForErrors = true)
         let options = mkOptions checker outFile
         File.WriteAllText(inFile, source)
 
@@ -112,16 +116,20 @@ open Compiler
 
 type Compiler with
     member comp.Run (source: string) =
-        { comp with status = Running},
+        { comp with status = Running },
         fun () -> async {
             let sw = Stopwatch.StartNew()
             let outfile = $"/tmp/out{comp.sequence}.dll"
             File.WriteAllText(inFile, source)
 
+            printfn "Starting compilation"
+
             let options = Compiler.mkOptions comp.checker outfile
             let! checkRes = comp.checker.ParseAndCheckProject(options)
             if checkRes.HasCriticalErrors then return { comp with status = Failed <| Choice1Of2 checkRes.Diagnostics } else
             
+            printfn "Finished first check."
+
             match findResultMember checkRes with
             | None -> return { comp with status = Failed <| Choice2Of2 ["No result member found"] }
             | Some minfo ->

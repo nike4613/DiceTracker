@@ -1,5 +1,6 @@
 ﻿
-open System
+module Dice
+
 open DiceTracker
 
 let rollsingle skill =
@@ -29,7 +30,7 @@ let rolldiff count skill diff =
         return! ((roll (Arg 0) count) + pityDice >=. !>diff)
     } |> funcnb "rolldiff" [skill]
 
-let calcProb =
+let result =
     seq {
         for attr in 1..8 do
             for skill in 0..5 do
@@ -40,6 +41,6 @@ let calcProb =
 [<EntryPoint>]
 let main argv =
     printfn ""
-    let results = calcProb |> Processing.processMany
+    let results = result |> Processing.processMany
     printfn $"{results}"
     0 // return an integer exit code

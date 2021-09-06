@@ -79,11 +79,30 @@ module Processing =
                 | UnpackResult.SelfBinary r -> r.values |> tmap bmap bmap |> r.ctor
                 | UnpackResult.OtherBinary r -> r.values |> tmap imap imap |> r.ctor
 
-
         type ProbabilityResultValue =
             | Probability of float
             | PSum of ProbabilityResultValue * ProbabilityResultValue
             | PProd of ProbabilityResultValue * ProbabilityResultValue
+            | PCond of BoolResultResult * ProbabilityResultValue * ProbabilityResultValue
+
+        module ProbabilityResultValue = 
+            type Self = ProbabilityResultValue
+            [<RequireQualifiedAccess>]
+            type UnpackResult =
+                | None of Self
+                | Binary of {| ctor: Self*Self -> Self ; values: Self*Self |}
+                | Cond of BoolResultResult * Self * Self
+            let (|Unpack|) res =
+                match res with
+                | Probability _ -> UnpackResult.None res
+                | PSum(a, b) -> UnpackResult.Binary {| ctor = PSum ; values = a,b |}
+                | PProd(a, b) -> UnpackResult.Binary {| ctor = PProd ; values = a,b |}
+                | PCond(c, t, f) -> UnpackResult.Cond(c, t, f)
+            let repack bmap rmap result =
+                match result with
+                | UnpackResult.None v -> v
+                | UnpackResult.Binary dc -> dc.values |> tmap rmap rmap |> dc.ctor
+                | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
 
         type ProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
         type NormalResults = ProbResults<ProbabilityResultResult>
@@ -142,13 +161,15 @@ module Processing =
                 match p with
                 | Probability v -> Some v
                 | PSum(a, b) -> binop (+) a b
-                | PProd(a, b) -> binop (*) a b 
+                | PProd(a, b) -> binop (*) a b
+                | PCond(c, t, f) ->
+                    match tryGetValueRBool c with
+                    | None -> None
+                    | Some b -> if b then tryGetValue t else tryGetValue f
 
             match tryGetValue prob, prob with
-            | Some v, _
-            | _, Probability v -> Probability v
-            | _, PSum(a, b) -> PSum(reduceProb a, reduceProb b)
-            | _, PProd(a, b) -> PProd(reduceProb a, reduceProb b)
+            | Some v, _ -> Probability v
+            | _, ProbabilityResultValue.Unpack r -> ProbabilityResultValue.repack reduceBoolResult reduceProb r
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 

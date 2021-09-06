@@ -247,6 +247,7 @@ module Processing =
                 let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
                 Seq.allPairs ra rb
                 |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
+                |> reduceSeq // for some fuckin reason not having these early reductions causes it to give the wrong answer
                 |> buildMap, cache
             match value with
             | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
@@ -279,6 +280,7 @@ module Processing =
                 let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
                 Seq.allPairs ra rb
                 |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
+                |> reduceBoolSeq
                 |> buildMap, cache
             match value with
             | Literal b -> Map.add (BoolValue b) (Probability 1.) Map.empty, cache
@@ -292,6 +294,7 @@ module Processing =
                 analyzeBool bindings cache b 
                 |> tmap1 Map.toSeq
                 |> tmap1 (Seq.map (fun (k, v) -> (RNot k), v))
+                |> tmap1 reduceBoolSeq
                 |> tmap1 buildMap
             | BoolAnd(a, b) -> binop analyzeBool RAnd a b
             | BoolOr(a, b) -> binop analyzeBool ROr a b

@@ -12,6 +12,10 @@ module Processing =
         let inline tmap1 f (a, b) = (f a, b)
         let inline tmap2 f (a, b) = (a, f b)
 
+        module Seq =
+            let ofTuple (a, b) = seq { yield a; yield b }
+            let (|Empty|_|) seq = if Seq.isEmpty seq then Some() else None
+
         type ProbabilityResultResult =
             | IntValue of int
             | RSum of ProbabilityResultResult * ProbabilityResultResult
@@ -173,11 +177,44 @@ module Processing =
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
-        let rec buildCallInt (args: NormalResults list) (funcVal: NormalResults) : NormalResults = 
-            failwith "not implemented"
+        let reduceResultMap = Map.toSeq >> Seq.map (tmap reduceResult reduceProb) >> Map
+        let reduceBoolResultMap = Map.toSeq >> Seq.map (tmap reduceBoolResult reduceProb) >> Map
 
-        and buildCallBool args funcVal : BoolResults =
-            failwith "not implemented"
+        let cartProd (args: 'a seq seq) = //: 'a seq seq =
+            args
+            |> Seq.fold 
+                (function
+                | Seq.Empty -> Seq.singleton
+                | l -> fun v ->
+                    Seq.allPairs l v
+                    |> Seq.map (fun (a, b) -> Seq.append a (Seq.singleton b))) 
+                Seq.empty
+
+        let rec buildCallFixInt (args: _ list) value =
+            match value with
+            | ArgValue i -> List.item i args
+            | ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack (buildCallFixInt args) r
+
+        and buildCallFixBool (args: _ list) (BoolResultResult.Unpack r) =
+            BoolResultResult.repack (buildCallFixInt args) (buildCallFixBool args) r
+
+        and buildCallFixProb (args: _ list) (ProbabilityResultValue.Unpack r) =
+            ProbabilityResultValue.repack (buildCallFixBool args) (buildCallFixProb args) r
+
+        let buildCallImpl fixImpl (args: NormalResults list) funcVal =
+            let args = args |> Seq.map Map.toSeq |> cartProd |> Seq.map Seq.toList |> Seq.cache
+            funcVal
+            |> Map.toSeq
+            |> Seq.allPairs args
+            |> Seq.map (fun (args, (value, prob)) -> args |> List.map fst, (value, prob), List.fold (fun a b -> PProd(a, snd b)) prob args)
+            |> Seq.map (fun (args, (value, _), prob) -> fixImpl args value, buildCallFixProb args prob)
+            |> buildMap
+
+        let buildCallInt (args: NormalResults list) (funcVal: NormalResults) : NormalResults =
+            buildCallImpl buildCallFixInt args funcVal
+
+        let buildCallBool (args: NormalResults list) (funcVal: BoolResults) : BoolResults =
+            buildCallImpl buildCallFixBool args funcVal
             
         type FunctionCache = Map<Function, NormalResults> * Map<BoolFunction, BoolResults>
         module FunctionCache =
@@ -284,9 +321,11 @@ module Processing =
                 analyzeBool (Map.add i value bindings) cache expr
 
         and maybeAnalyzeFuncInt cache (func: Function) =
-            findOrAdd1 func (fun func cache -> analyze Map.empty cache func.value) cache
+            findOrAdd1 func (fun func cache ->
+                analyze Map.empty cache func.value |> tmap1 reduceResultMap) cache
         and maybeAnalyzeFuncBool cache (func: BoolFunction) =
-            findOrAdd2 func (fun func cache -> analyzeBool Map.empty cache func.value) cache
+            findOrAdd2 func (fun func cache ->
+                analyzeBool Map.empty cache func.value |> tmap1 reduceBoolResultMap) cache
             
         let processWithName (cache: FunctionCache) name prob =
             let (result, cache) = analyze Map.empty cache prob

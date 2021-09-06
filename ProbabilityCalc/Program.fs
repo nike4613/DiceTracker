@@ -41,9 +41,11 @@ let result =
                 |> outputName $"attr {attr} skill {skill}"
     }
 
+let rec printMapFull map = Map.iter (printfn "%s %A") map
+
 [<EntryPoint>]
 let main argv =
     printfn ""
     let results = result |> Processing.processMany
-    printfn $"{results}"
+    printMapFull results
     0 // return an integer exit code

@@ -380,7 +380,6 @@ module Processing =
                         let (name, r, cache) = processOneImpl cache i v
                         (name, r)::sets, cache) ([], Internal.FunctionCache.empty)
         |> fst
-        |> List.rev
         |> Map
 
     /// Processes a single OutputValue into its output probabilities

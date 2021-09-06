@@ -177,8 +177,16 @@ module Processing =
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
-        let reduceResultMap = Map.toSeq >> Seq.map (tmap reduceResult reduceProb) >> Map
-        let reduceBoolResultMap = Map.toSeq >> Seq.map (tmap reduceBoolResult reduceProb) >> Map
+        let filterImpossible seq =
+            seq |> Seq.filter (function
+                | _, Probability 0. -> false
+                | _, _ -> true)
+
+        let reduceSeq seq = seq |> Seq.map (tmap reduceResult reduceProb) |> filterImpossible
+        let reduceBoolSeq seq = seq |> Seq.map (tmap reduceBoolResult reduceProb) |> filterImpossible
+
+        let reduceResultMap = Map.toSeq >> reduceSeq >> Map
+        let reduceBoolResultMap = Map.toSeq >> reduceBoolSeq >> Map
 
         let cartProd (args: 'a seq seq) = //: 'a seq seq =
             args
@@ -291,7 +299,7 @@ module Processing =
                 let result, cache = analyzeBool bindings cache cond
                 let result, cache = 
                     result |> Map.toSeq
-                    |> Seq.map (tmap reduceBoolResult reduceProb)
+                    |> reduceBoolSeq
                     |> Seq.mapFold (fun cache (r, v) ->
                             let rt, cache = analyzeBool bindings cache t |> tmap1 Map.toSeq
                             let rf, cache = analyzeBool bindings cache f |> tmap1 Map.toSeq
@@ -321,7 +329,7 @@ module Processing =
             let result, cache = analyzeBool bindings cache cond
             let result, cache = 
                 result |> Map.toSeq
-                |> Seq.map (tmap reduceBoolResult reduceProb)
+                |> reduceBoolSeq
                 |> Seq.mapFold (fun cache (r, v) ->
                         let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
                         let rf, cache = analyze bindings cache f |> tmap1 Map.toSeq
@@ -349,7 +357,7 @@ module Processing =
             let result =
                 result
                 |> Map.toSeq
-                |> Seq.map (tmap reduceResult reduceProb)
+                |> reduceSeq
                 |> Seq.map (tmap1 (fun v -> match v with | IntValue v -> v | _ -> raise (exn $"Found unresolvable value %O{v}")))
                 |> Seq.map (tmap2 (fun v -> match v with | Probability p -> p | _ -> raise (exn $"Found unresolvable probability %O{v}")))
                 |> Map

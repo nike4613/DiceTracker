@@ -20,6 +20,25 @@ module Processing =
             | RDiv of ProbabilityResultResult * ProbabilityResultResult
             | ArgValue of index:int
 
+        module ProbabilityResultResult =
+            type Self = ProbabilityResultResult
+            [<RequireQualifiedAccess>]
+            type UnpackResult = 
+                | None of Self
+                | Binary of {| ctor: Self*Self -> Self; values: Self*Self |}
+            let (|Unpack|) res =
+                match res with
+                | IntValue _
+                | ArgValue _ -> UnpackResult.None res
+                | RSum(a, b) -> UnpackResult.Binary {| ctor = RSum ; values = a,b |}
+                | RDiff(a, b) -> UnpackResult.Binary {| ctor = RDiff ; values = a,b |}
+                | RMul(a, b) -> UnpackResult.Binary {| ctor = RMul ; values = a,b |}
+                | RDiv(a, b) -> UnpackResult.Binary {| ctor = RDiv ; values = a,b |}
+            let repack map result =
+                match result with
+                | UnpackResult.None v -> v
+                | UnpackResult.Binary r -> r.values |> tmap map map |> r.ctor
+
         type BoolResultResult =
             | BoolValue of bool
             | REquals of ProbabilityResultResult * ProbabilityResultResult
@@ -31,6 +50,35 @@ module Processing =
             | RNot of BoolResultResult
             | RAnd of BoolResultResult * BoolResultResult
             | ROr of BoolResultResult * BoolResultResult
+
+        module BoolResultResult =
+            type Self = BoolResultResult
+            type Other = ProbabilityResultResult
+            [<RequireQualifiedAccess>]
+            type UnpackResult = 
+                | None of Self
+                | Unary of {| ctor: Self -> Self ; value: Self |}
+                | SelfBinary of {| ctor: Self*Self -> Self ; values: Self*Self |}
+                | OtherBinary of {| ctor: Other*Other -> Self ; values: Other*Other |}
+            let (|Unpack|) res =
+                match res with
+                | BoolValue _ -> UnpackResult.None res
+                | RNot v -> UnpackResult.Unary {| ctor = RNot ; value = v |}
+                | RAnd(a, b) -> UnpackResult.SelfBinary {| ctor = RAnd ; values = a,b |}
+                | ROr(a, b) -> UnpackResult.SelfBinary {| ctor = ROr ; values = a,b |}
+                | REquals(a, b) -> UnpackResult.OtherBinary {| ctor = REquals ; values = a,b |}
+                | RNEquals(a, b) -> UnpackResult.OtherBinary {| ctor = RNEquals ; values = a,b |}
+                | RGt(a, b) -> UnpackResult.OtherBinary {| ctor = RGt ; values = a,b |}
+                | RLt(a, b) -> UnpackResult.OtherBinary {| ctor = RLt ; values = a,b |}
+                | RGte(a, b) -> UnpackResult.OtherBinary {| ctor = RGte ; values = a,b |}
+                | RLte(a, b) -> UnpackResult.OtherBinary {| ctor = RLte ; values = a,b |}
+            let repack imap bmap result = 
+                match result with
+                | UnpackResult.None v -> v
+                | UnpackResult.Unary r -> r.value |> bmap |> r.ctor
+                | UnpackResult.SelfBinary r -> r.values |> tmap bmap bmap |> r.ctor
+                | UnpackResult.OtherBinary r -> r.values |> tmap imap imap |> r.ctor
+
 
         type ProbabilityResultValue =
             | Probability of float
@@ -54,17 +102,11 @@ module Processing =
             | ArgValue _ -> None
 
         let rec reduceResult res =
-            let binop op a b = op ((reduceResult a), (reduceResult b))
             match tryGetValueRInt res, res with
-            | Some i, _
-            | _, IntValue i -> IntValue i
-            | _, RSum(a, b) -> binop RSum a b
-            | _, RDiff(a, b) -> binop RDiff a b
-            | _, RMul(a, b) -> binop RMul a b
-            | _, RDiv(a, b) -> binop RDiv a b
-            | _, ArgValue i -> ArgValue i
+            | Some i, _ -> IntValue i
+            | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult r
 
-        and tryGetValueRBool res =
+        let rec tryGetValueRBool res =
             let binop getVal op a b = Option.map2 op (getVal a) (getVal b)
             match res with
             | BoolValue v -> Some v
@@ -82,18 +124,9 @@ module Processing =
             | ROr(a, b) -> binop tryGetValueRBool (||) a b
             | RNot a -> tryGetValueRBool a |> Option.map not
 
-        and reduceBoolResult res =
+        let rec reduceBoolResult res =
             match tryGetValueRBool res, res with
-            | Some v, _
-            | _, BoolValue v -> BoolValue v
-            | _, REquals(a, b) -> REquals(reduceResult a, reduceResult b)
-            | _, RNEquals(a, b) -> RNEquals(reduceResult a, reduceResult b)
-            | _, RGt(a, b) -> RGt(reduceResult a, reduceResult b)
-            | _, RLt(a, b) -> RLt(reduceResult a, reduceResult b)
-            | _, RGte(a, b) -> RGte(reduceResult a, reduceResult b)
-            | _, RLte(a, b) -> RLte(reduceResult a, reduceResult b)
-            | _, RAnd(a, b) -> RAnd(reduceBoolResult a, reduceBoolResult b)
-            | _, ROr(a, b) -> ROr(reduceBoolResult a, reduceBoolResult b)
+            | Some v, _ -> BoolValue v
             | _, RNot(REquals(a, b)) -> RNEquals(reduceResult a, reduceResult b)
             | _, RNot(RNEquals(a, b)) -> REquals(reduceResult a, reduceResult b)
             | _, RNot(RGt(a, b)) -> RLte(reduceResult a, reduceResult b)
@@ -101,7 +134,7 @@ module Processing =
             | _, RNot(RGte(a, b)) -> RLt(reduceResult a, reduceResult b)
             | _, RNot(RLte(a, b)) -> RGt(reduceResult a, reduceResult b)
             | _, RNot(RNot(a)) -> a
-            | _, RNot a -> RNot(reduceBoolResult a)
+            | _, BoolResultResult.Unpack r -> BoolResultResult.repack reduceResult reduceBoolResult r
 
         let rec reduceProb prob =
             let rec tryGetValue p =
@@ -119,7 +152,7 @@ module Processing =
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
 
-        let rec buildCallInt args funcVal : NormalResults = 
+        let rec buildCallInt (args: NormalResults list) (funcVal: NormalResults) : NormalResults = 
             failwith "not implemented"
 
         and buildCallBool args funcVal : BoolResults =

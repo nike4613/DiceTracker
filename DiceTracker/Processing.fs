@@ -84,7 +84,7 @@ module Processing =
                 | UnpackResult.OtherBinary r -> r.values |> tmap imap imap |> r.ctor
 
         type ProbabilityResultValue =
-            | Probability of float
+            | Probability of decimal
             | PSum of ProbabilityResultValue * ProbabilityResultValue
             | PProd of ProbabilityResultValue * ProbabilityResultValue
             | PRebase of value:ProbabilityResultValue * numerator:int * denominator:int
@@ -111,6 +111,10 @@ module Processing =
                 | UnpackResult.Binary dc -> dc.values |> tmap rmap rmap |> dc.ctor
                 | UnpackResult.Rebase(v, n, d) -> PRebase(rmap v, n, d)
                 | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
+
+        module Prob =
+            let always = Probability 1.m
+            let never = Probability 0.m
 
         type ProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
         type NormalResults = ProbResults<ProbabilityResultResult>
@@ -170,7 +174,7 @@ module Processing =
                 | Probability v -> Some v
                 | PSum(a, b) -> binop (+) a b
                 | PProd(a, b) -> binop (*) a b
-                | PRebase(v, n, d) -> tryGetValue v |> Option.map (fun v -> v * (float n) / (float d))
+                | PRebase(v, n, d) -> tryGetValue v |> Option.map (fun v -> v * (decimal n) / (decimal d))
                 | PCond(c, t, f) ->
                     match tryGetValueRBool c with
                     | None -> None
@@ -184,14 +188,16 @@ module Processing =
 
         let filterImpossible seq =
             seq |> Seq.filter (function
-                | _, Probability 0. -> false
+                | _, Probability 0.m -> false
                 | _, _ -> true)
 
         let reduceSeq seq = seq |> Seq.map (tmap reduceResult reduceProb) |> filterImpossible
         let reduceBoolSeq seq = seq |> Seq.map (tmap reduceBoolResult reduceProb) |> filterImpossible
 
-        let reduceResultMap = Map.toSeq >> reduceSeq >> Map
-        let reduceBoolResultMap = Map.toSeq >> reduceBoolSeq >> Map
+        let rebuildMap f = Map.toSeq >> f >> buildMap
+
+        let reduceResultMap = rebuildMap reduceSeq
+        let reduceBoolResultMap = rebuildMap reduceBoolSeq
 
         let cartProd (args: 'a seq seq) = //: 'a seq seq =
             args
@@ -246,40 +252,47 @@ module Processing =
                 let (v, cache) = mkFunc key cache
                 v, (fst cache, Map.add key v (snd cache))
 
+        let probCombine a b = PProd(a, b)
+
         let analyzeBinop analyze reducer bindings cache op a b =
             let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
-            |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
+            |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), probCombine v1 v2)
             |> reducer
             |> buildMap, cache
 
         let analyzeCond analyze analyzeBool bindings cache cond t f =
+            let onlyIfTrue cond v = PCond(cond, v, Prob.never)
+            let onlyIfFalse cond v = PCond(cond, Prob.never, v)
+            let makeNewBindings pcreator cond = Map.map (fun _ -> rebuildMap <| (Seq.map <| (tmap2 <| pcreator cond)))
             let result, cache = analyzeBool bindings cache cond
             let result, cache = 
                 result |> Map.toSeq
                 |> reduceBoolSeq
                 |> Seq.mapFold (fun cache (r, v) ->
-                        let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
-                        let rf, cache = analyze bindings cache f |> tmap1 Map.toSeq
-                        let rt = 
-                            rt
-                            |> Seq.map (tmap2 (fun v -> PCond(r, v, Probability 0.)))
-                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                        let rf = 
-                            rf
-                            |> Seq.map (tmap2 (fun v -> PCond(r, Probability 0., v)))
-                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                        Seq.append rt rf, cache
+                    let tbindings = bindings |> makeNewBindings onlyIfTrue r
+                    let fbindings = bindings |> makeNewBindings onlyIfFalse r
+                    let rt, cache = analyze tbindings cache t |> tmap1 Map.toSeq
+                    let rf, cache = analyze fbindings cache f |> tmap1 Map.toSeq
+                    let rt = 
+                        rt
+                        |> Seq.map (tmap2 (onlyIfTrue r))
+                        |> Seq.map (tmap2 (probCombine v))
+                    let rf = 
+                        rf
+                        |> Seq.map (tmap2 (onlyIfFalse r))
+                        |> Seq.map (tmap2 (probCombine v))
+                    Seq.append rt rf, cache
                 ) cache
             result |> Seq.concat |> buildMap, cache
 
         let rec analyze bindings cache value : NormalResults * FunctionCache =
             let binop = analyzeBinop analyze reduceSeq bindings cache
             match value with
-            | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
-            | Argument i -> Map.add (ArgValue i) (Probability 1.) Map.empty, cache
-            | DieValue { size = n } -> seq { for i in 1..n -> IntValue i, Probability (1./(float n)) } |> NormalResults, cache
+            | Number n -> Map.add (IntValue n) Prob.always Map.empty, cache
+            | Argument i -> Map.add (ArgValue i) Prob.always Map.empty, cache
+            | DieValue { size = n } -> seq { for i in 1..n -> IntValue i, Probability (1.m/(decimal n)) } |> NormalResults, cache
             | Sum(a, b) -> binop RSum a b
             | Difference(a, b) -> binop RDiff a b
             | Multiply(a, b) -> binop RMul a b
@@ -304,7 +317,7 @@ module Processing =
         and analyzeBool bindings cache value : BoolResults * FunctionCache =
             let binop analyze = analyzeBinop analyze reduceBoolSeq bindings cache
             match value with
-            | Literal b -> Map.add (BoolValue b) (Probability 1.) Map.empty, cache
+            | Literal b -> Map.add (BoolValue b) Prob.always Map.empty, cache
             | Equals(a, b) -> binop analyze REquals a b
             | NotEquals(a, b) -> binop analyze RNEquals a b
             | GreaterThan(a, b) -> binop analyze RGt a b

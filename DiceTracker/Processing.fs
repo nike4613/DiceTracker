@@ -87,6 +87,7 @@ module Processing =
             | Probability of float
             | PSum of ProbabilityResultValue * ProbabilityResultValue
             | PProd of ProbabilityResultValue * ProbabilityResultValue
+            | PRebase of value:ProbabilityResultValue * numerator:int * denominator:int
             | PCond of BoolResultResult * ProbabilityResultValue * ProbabilityResultValue
 
         module ProbabilityResultValue = 
@@ -95,17 +96,20 @@ module Processing =
             type UnpackResult =
                 | None of Self
                 | Binary of {| ctor: Self*Self -> Self ; values: Self*Self |}
+                | Rebase of Self*int*int
                 | Cond of BoolResultResult * Self * Self
             let (|Unpack|) res =
                 match res with
                 | Probability _ -> UnpackResult.None res
                 | PSum(a, b) -> UnpackResult.Binary {| ctor = PSum ; values = a,b |}
                 | PProd(a, b) -> UnpackResult.Binary {| ctor = PProd ; values = a,b |}
+                | PRebase(v, n, d) -> UnpackResult.Rebase(v, n, d)
                 | PCond(c, t, f) -> UnpackResult.Cond(c, t, f)
             let repack bmap rmap result =
                 match result with
                 | UnpackResult.None v -> v
                 | UnpackResult.Binary dc -> dc.values |> tmap rmap rmap |> dc.ctor
+                | UnpackResult.Rebase(v, n, d) -> PRebase(rmap v, n, d)
                 | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
 
         type ProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
@@ -166,6 +170,7 @@ module Processing =
                 | Probability v -> Some v
                 | PSum(a, b) -> binop (+) a b
                 | PProd(a, b) -> binop (*) a b
+                | PRebase(v, n, d) -> tryGetValue v |> Option.map (fun v -> v * (float n) / (float d))
                 | PCond(c, t, f) ->
                     match tryGetValueRBool c with
                     | None -> None
@@ -249,6 +254,26 @@ module Processing =
             |> reducer
             |> buildMap, cache
 
+        let analyzeCond analyze analyzeBool bindings cache cond t f =
+            let result, cache = analyzeBool bindings cache cond
+            let result, cache = 
+                result |> Map.toSeq
+                |> reduceBoolSeq
+                |> Seq.mapFold (fun cache (r, v) ->
+                        let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
+                        let rf, cache = analyze bindings cache f |> tmap1 Map.toSeq
+                        let rt = 
+                            rt
+                            |> Seq.map (tmap2 (fun v -> PCond(r, v, Probability 0.)))
+                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
+                        let rf = 
+                            rf
+                            |> Seq.map (tmap2 (fun v -> PCond(r, Probability 0., v)))
+                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
+                        Seq.append rt rf, cache
+                ) cache
+            result |> Seq.concat |> buildMap, cache
+
         let rec analyze bindings cache value : NormalResults * FunctionCache =
             let binop = analyzeBinop analyze reduceSeq bindings cache
             match value with
@@ -259,7 +284,7 @@ module Processing =
             | Difference(a, b) -> binop RDiff a b
             | Multiply(a, b) -> binop RMul a b
             | Divide(a, b) -> binop RDiv a b
-            | Condition(cond, t, f) -> analyzeCond analyze bindings cache cond t f
+            | Condition(cond, t, f) -> analyzeCond analyze analyzeBool bindings cache cond t f
 
             | FunctionCall(func, args) ->
                 let func, cache = maybeAnalyzeFuncInt cache func
@@ -294,25 +319,7 @@ module Processing =
                 |> tmap1 buildMap
             | BoolAnd(a, b) -> binop analyzeBool RAnd a b
             | BoolOr(a, b) -> binop analyzeBool ROr a b
-            | BoolCondition(cond, t, f) ->
-                let result, cache = analyzeBool bindings cache cond
-                let result, cache = 
-                    result |> Map.toSeq
-                    |> reduceBoolSeq
-                    |> Seq.mapFold (fun cache (r, v) ->
-                            let rt, cache = analyzeBool bindings cache t |> tmap1 Map.toSeq
-                            let rf, cache = analyzeBool bindings cache f |> tmap1 Map.toSeq
-                            let rt = 
-                                rt
-                                |> Seq.map (tmap2 (fun v -> PCond(r, v, Probability 0.)))
-                                |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                            let rf = 
-                                rf
-                                |> Seq.map (tmap2 (fun v -> PCond(r, Probability 0., v)))
-                                |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                            Seq.append rt rf, cache
-                    ) cache
-                result |> Seq.concat |> buildMap, cache
+            | BoolCondition(cond, t, f) -> analyzeCond analyzeBool analyzeBool bindings cache cond t f
 
             | BoolFunctionCall(func, args) ->
                 let func, cache = maybeAnalyzeFuncBool cache func
@@ -322,27 +329,6 @@ module Processing =
             | BoolBinding(i, value, expr) ->
                 let (value, cache) = analyze bindings cache value
                 analyzeBool (Map.add i value bindings) cache expr
-
-        // TODO: why does this not work in BoolCondition?
-        and analyzeCond (analyze:BindingSet->FunctionCache->'a->ProbResults<'b>*FunctionCache) (bindings:BindingSet) (cache:FunctionCache) (cond:BooleanValue) (t:'a) (f:'a) : ProbResults<'b>*FunctionCache =
-            let result, cache = analyzeBool bindings cache cond
-            let result, cache = 
-                result |> Map.toSeq
-                |> reduceBoolSeq
-                |> Seq.mapFold (fun cache (r, v) ->
-                        let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
-                        let rf, cache = analyze bindings cache f |> tmap1 Map.toSeq
-                        let rt = 
-                            rt
-                            |> Seq.map (tmap2 (fun v -> PCond(r, v, Probability 0.)))
-                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                        let rf = 
-                            rf
-                            |> Seq.map (tmap2 (fun v -> PCond(r, Probability 0., v)))
-                            |> Seq.map (tmap2 (fun v2 -> PProd(v, v2)))
-                        Seq.append rt rf, cache
-                ) cache
-            result |> Seq.concat |> buildMap, cache
 
         and maybeAnalyzeFuncInt cache (func: Function) =
             findOrAdd1 func (fun func cache ->

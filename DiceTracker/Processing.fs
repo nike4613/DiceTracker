@@ -241,14 +241,16 @@ module Processing =
                 let (v, cache) = mkFunc key cache
                 v, (fst cache, Map.add key v (snd cache))
 
+        let analyzeBinop analyze reducer bindings cache op a b =
+            let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
+            let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
+            Seq.allPairs ra rb
+            |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
+            |> reducer
+            |> buildMap, cache
+
         let rec analyze bindings cache value : NormalResults * FunctionCache =
-            let binop op a b =
-                let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
-                let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
-                Seq.allPairs ra rb
-                |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
-                |> reduceSeq // for some fuckin reason not having these early reductions causes it to give the wrong answer
-                |> buildMap, cache
+            let binop = analyzeBinop analyze reduceSeq bindings cache
             match value with
             | Number n -> Map.add (IntValue n) (Probability 1.) Map.empty, cache
             | Argument i -> Map.add (ArgValue i) (Probability 1.) Map.empty, cache
@@ -275,13 +277,7 @@ module Processing =
                 Map.tryFind i bindings |> Option.get, cache
 
         and analyzeBool bindings cache value : BoolResults * FunctionCache =
-            let binop analyze op a b =
-                let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
-                let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
-                Seq.allPairs ra rb
-                |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), PProd(v1, v2))
-                |> reduceBoolSeq
-                |> buildMap, cache
+            let binop analyze = analyzeBinop analyze reduceBoolSeq bindings cache
             match value with
             | Literal b -> Map.add (BoolValue b) (Probability 1.) Map.empty, cache
             | Equals(a, b) -> binop analyze REquals a b

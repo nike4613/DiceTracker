@@ -23,6 +23,7 @@ module Processing =
             | RMul of ProbabilityResultResult * ProbabilityResultResult
             | RDiv of ProbabilityResultResult * ProbabilityResultResult
             | ArgValue of index:int
+            | RBinding of index:int
 
         module ProbabilityResultResult =
             type Self = ProbabilityResultResult
@@ -33,6 +34,7 @@ module Processing =
             let (|Unpack|) res =
                 match res with
                 | IntValue _
+                | RBinding _
                 | ArgValue _ -> UnpackResult.None res
                 | RSum(a, b) -> UnpackResult.Binary {| ctor = RSum ; values = a,b |}
                 | RDiff(a, b) -> UnpackResult.Binary {| ctor = RDiff ; values = a,b |}
@@ -116,11 +118,13 @@ module Processing =
             let always = Probability 1.m
             let never = Probability 0.m
 
-        type ProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
-        type NormalResults = ProbResults<ProbabilityResultResult>
-        type BoolResults = ProbResults<BoolResultResult>
-
-        type BindingSet = Map<int, NormalResults>
+        type BindingSet = Map<int, ProbabilityResultResult>
+        type ProbResults<'a when 'a : comparison> = Map<'a * BindingSet, ProbabilityResultValue>
+        type CompleteProbResults<'a when 'a : comparison> = Map<'a, ProbabilityResultValue>
+        type UnboundNormalResults = ProbResults<ProbabilityResultResult>
+        type BoundNormalResults = CompleteProbResults<ProbabilityResultResult>
+        type UnboundBoolResults = ProbResults<BoolResultResult>
+        type BoundBoolResults = CompleteProbResults<BoolResultResult>
     
         let rec tryGetValueRInt res =
             let binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
@@ -131,6 +135,7 @@ module Processing =
             | RMul(a, b) -> binop (*) a b
             | RDiv(a, b) -> binop (/) a b
             | ArgValue _ -> None
+            | RBinding _ -> None // we specifically need to do late binding here
 
         let rec reduceResult res =
             match tryGetValueRInt res, res with
@@ -166,6 +171,17 @@ module Processing =
             | _, RNot(RLte(a, b)) -> RGt(reduceResult a, reduceResult b)
             | _, RNot(RNot(a)) -> a
             | _, BoolResultResult.Unpack r -> BoolResultResult.repack reduceResult reduceBoolResult r
+            
+        let reduceBindings binds =
+            binds |> Map.map (fun _ v -> reduceResult v)
+            
+        let reduceUnboundResult (res, binds) =
+            reduceResult res,
+            reduceBindings binds
+
+        let reduceUnboundBoolResult (res, binds) =
+            reduceBoolResult res,
+            reduceBindings binds
 
         let rec reduceProb prob =
             let rec tryGetValue p =
@@ -191,13 +207,46 @@ module Processing =
                 | _, Probability 0.m -> false
                 | _, _ -> true)
 
-        let reduceSeq seq = seq |> Seq.map (tmap reduceResult reduceProb) |> filterImpossible
-        let reduceBoolSeq seq = seq |> Seq.map (tmap reduceBoolResult reduceProb) |> filterImpossible
+        let reduceBoundSeq seq = seq |> Seq.map (tmap reduceResult reduceProb) |> filterImpossible
+        let reduceBoundBoolSeq seq = seq |> Seq.map (tmap reduceBoolResult reduceProb) |> filterImpossible
+
+        let reduceUnboundSeq seq = seq |> Seq.map (tmap reduceUnboundResult reduceProb) |> filterImpossible
+        let reduceUnboundBoolSeq seq = seq |> Seq.map (tmap reduceUnboundBoolResult reduceProb) |> filterImpossible
+
+        let rec bindResultImpl binds res =
+            match res with
+            | RBinding i -> Map.find i binds
+            | ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack (bindResultImpl binds) r
+
+        let rec bindBoolResultImpl binds (BoolResultResult.Unpack r) =
+            BoolResultResult.repack (bindResultImpl binds) (bindBoolResultImpl binds) r
+
+        let rec bindProbImpl binds (ProbabilityResultValue.Unpack r) =
+            ProbabilityResultValue.repack (bindBoolResultImpl binds) (bindProbImpl binds) r
+
+        let bindBindings (binds: BindingSet) : BindingSet =
+            binds
+            |> Map.toSeq
+            |> Seq.fold (fun m (i, v) -> Map.add i (bindResultImpl m v) m) Map.empty
+
+        let bindResult ((r, binds), v) =
+            let binds = bindBindings binds
+            bindResultImpl binds r, bindProbImpl binds v
+
+        let bindBoolResult ((r, binds), v) =
+            let binds = bindBindings binds
+            bindBoolResultImpl binds r, bindProbImpl binds v
+
+        let bindSeq seq = seq |> Seq.map bindResult
+        let bindBoolSeq seq = seq |> Seq.map bindBoolResult
 
         let rebuildMap f = Map.toSeq >> f >> buildMap
 
-        let reduceResultMap = rebuildMap reduceSeq
-        let reduceBoolResultMap = rebuildMap reduceBoolSeq
+        let reduceBoundResultMap = rebuildMap reduceBoundSeq
+        let reduceBoundBoolResultMap = rebuildMap reduceBoundBoolSeq
+
+        let bindResultMap : UnboundNormalResults -> BoundNormalResults = rebuildMap bindSeq
+        let bindBoolResultMap : UnboundBoolResults -> BoundBoolResults = rebuildMap bindBoolSeq
 
         let cartProd (args: 'a seq seq) = //: 'a seq seq =
             args
@@ -220,22 +269,23 @@ module Processing =
         and buildCallFixProb (args: _ list) (ProbabilityResultValue.Unpack r) =
             ProbabilityResultValue.repack (buildCallFixBool args) (buildCallFixProb args) r
 
-        let buildCallImpl fixImpl (args: NormalResults list) funcVal =
-            let args = args |> Seq.map Map.toSeq |> cartProd |> Seq.map Seq.toList |> Seq.cache
+        // Builds a function call based on the provided fixImpl, doing *no* binding processing. That is up to the caller.
+        let buildCallImpl fixImpl (args: UnboundNormalResults list) funcVal =
+            let args = args |> Seq.map Map.toSeq |> Seq.map (Seq.map <| tmap1 fst) |> cartProd |> Seq.map Seq.toList |> Seq.cache
             funcVal
             |> Map.toSeq
             |> Seq.allPairs args
             |> Seq.map (fun (args, (value, prob)) -> args |> List.map fst, (value, prob), List.fold (fun a b -> PProd(a, snd b)) prob args)
-            |> Seq.map (fun (args, (value, _), prob) -> fixImpl args value, buildCallFixProb args prob)
+            |> Seq.map (fun (args, (value, _), prob) -> (fixImpl args value, Map.empty), buildCallFixProb args prob)
             |> buildMap
 
-        let buildCallInt (args: NormalResults list) (funcVal: NormalResults) : NormalResults =
+        let buildCallInt (args: UnboundNormalResults list) (funcVal: BoundNormalResults) =
             buildCallImpl buildCallFixInt args funcVal
 
-        let buildCallBool (args: NormalResults list) (funcVal: BoolResults) : BoolResults =
+        let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) =
             buildCallImpl buildCallFixBool args funcVal
             
-        type FunctionCache = Map<Function, NormalResults> * Map<BoolFunction, BoolResults>
+        type FunctionCache = Map<Function, BoundNormalResults> * Map<BoolFunction, BoundBoolResults>
         module FunctionCache =
             let empty : FunctionCache = Map.empty, Map.empty
 
@@ -258,19 +308,35 @@ module Processing =
             let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
-            |> Seq.map (fun ((k1, v1), (k2, v2)) -> op (k1, k2), probCombine v1 v2)
+            |> Seq.map (fun (((k1, b1), v1), ((k2, b2), v2)) -> (k1, v1), (k2, v2), b1, b2)
+            |> Seq.filter (fun (_, _, a, b) -> reduceBindings a = reduceBindings b)
+            |> Seq.map (fun ((k1, v1), (k2, v2), b, _) -> (op (k1, k2), b), probCombine v1 v2)
             |> reducer
             |> buildMap, cache
+
+        (*
+                For correct condition analysis, we need to be able to notice restrictions to possible values of bindings.
+                This ends up effectively requiring the same kind of algorithm that eg. the C# compiler uses to determine that
+            a value is not null in a certain piece of code because of a surrounding check. As far as I know though, all such
+            algorithms are falliable, and requires, in some cases, the programmer to insert explicit assertions that such a
+            thing is the case. For us, such failures lead to an incorrect result, and as such are not permissible.
+                Therefore, I think, we need to keep track of all restrictions on all conditionals that surround the current
+            block (that contain binding references) so that we can determine binding value restrictions when resolving them.
+            This information *also* needs to propagate to bindings referencing other bindings, and so bindings need to actually
+            be resolved *as late as possible*. This means, for functions, the end of the core function evaluation, and for top-
+            level expressions, the end of evaluation of that expression.
+        *)
 
         let analyzeCond analyze analyzeBool bindings cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)
             let onlyIfFalse cond v = PCond(cond, Prob.never, v)
+            // TODO: makeNewBindings doesn't actually behave; lets make it
             let makeNewBindings pcreator cond = Map.map (fun _ -> rebuildMap <| (Seq.map <| (tmap2 <| pcreator cond)))
             let result, cache = analyzeBool bindings cache cond
             let result, cache = 
                 result |> Map.toSeq
-                |> reduceBoolSeq
-                |> Seq.mapFold (fun cache (r, v) ->
+                |> reduceUnboundBoolSeq
+                |> Seq.mapFold (fun cache ((r, b), v) ->
                     let tbindings = bindings |> makeNewBindings onlyIfTrue r
                     let fbindings = bindings |> makeNewBindings onlyIfFalse r
                     let rt, cache = analyze tbindings cache t |> tmap1 Map.toSeq
@@ -287,12 +353,12 @@ module Processing =
                 ) cache
             result |> Seq.concat |> buildMap, cache
 
-        let rec analyze bindings cache value : NormalResults * FunctionCache =
-            let binop = analyzeBinop analyze reduceSeq bindings cache
+        let rec analyze bindings cache value : UnboundNormalResults * FunctionCache =
+            let binop = analyzeBinop analyze reduceUnboundSeq bindings cache
             match value with
-            | Number n -> Map.add (IntValue n) Prob.always Map.empty, cache
-            | Argument i -> Map.add (ArgValue i) Prob.always Map.empty, cache
-            | DieValue { size = n } -> seq { for i in 1..n -> IntValue i, Probability (1.m/(decimal n)) } |> NormalResults, cache
+            | Number n -> Map.add (IntValue n, Map.empty) Prob.always Map.empty, cache
+            | Argument i -> Map.add (ArgValue i, Map.empty) Prob.always Map.empty, cache
+            | DieValue { size = n } -> seq { for i in 1..n -> (IntValue i, Map.empty), Probability (1.m/(decimal n)) } |> UnboundNormalResults, cache
             | Sum(a, b) -> binop RSum a b
             | Difference(a, b) -> binop RDiff a b
             | Multiply(a, b) -> binop RMul a b
@@ -314,10 +380,10 @@ module Processing =
                 // should consider only the cases where that bound value is a matching value
                 Map.tryFind i bindings |> Option.get, cache
 
-        and analyzeBool bindings cache value : BoolResults * FunctionCache =
-            let binop analyze = analyzeBinop analyze reduceBoolSeq bindings cache
+        and analyzeBool bindings cache value : UnboundBoolResults * FunctionCache =
+            let binop analyze = analyzeBinop analyze reduceUnboundBoolSeq bindings cache
             match value with
-            | Literal b -> Map.add (BoolValue b) Prob.always Map.empty, cache
+            | Literal b -> Map.add (BoolValue b, Map.empty) Prob.always Map.empty, cache
             | Equals(a, b) -> binop analyze REquals a b
             | NotEquals(a, b) -> binop analyze RNEquals a b
             | GreaterThan(a, b) -> binop analyze RGt a b
@@ -327,8 +393,8 @@ module Processing =
             | BoolNot b ->
                 analyzeBool bindings cache b 
                 |> tmap1 Map.toSeq
-                |> tmap1 (Seq.map (fun (k, v) -> (RNot k), v))
-                |> tmap1 reduceBoolSeq
+                |> tmap1 (Seq.map (fun ((k, b), v) -> (RNot k, b), v))
+                |> tmap1 reduceUnboundBoolSeq
                 |> tmap1 buildMap
             | BoolAnd(a, b) -> binop analyzeBool RAnd a b
             | BoolOr(a, b) -> binop analyzeBool ROr a b
@@ -345,17 +411,18 @@ module Processing =
 
         and maybeAnalyzeFuncInt cache (func: Function) =
             findOrAdd1 func (fun func cache ->
-                analyze Map.empty cache func.value |> tmap1 reduceResultMap) cache
+                analyze Map.empty cache func.value |> tmap1 bindResultMap |> tmap1 reduceBoundResultMap) cache
         and maybeAnalyzeFuncBool cache (func: BoolFunction) =
             findOrAdd2 func (fun func cache ->
-                analyzeBool Map.empty cache func.value |> tmap1 reduceBoolResultMap) cache
+                analyzeBool Map.empty cache func.value |> tmap1 bindBoolResultMap |> tmap1 reduceBoundBoolResultMap) cache
             
         let processWithName (cache: FunctionCache) name prob =
             let (result, cache) = analyze Map.empty cache prob
             let result =
                 result
                 |> Map.toSeq
-                |> reduceSeq
+                |> bindSeq
+                |> reduceBoundSeq
                 |> Seq.map (tmap1 (fun v -> match v with | IntValue v -> v | _ -> raise (exn $"Found unresolvable value %O{v}")))
                 |> Seq.map (tmap2 (fun v -> match v with | Probability p -> p | _ -> raise (exn $"Found unresolvable probability %O{v}")))
                 |> Map

@@ -32,13 +32,13 @@ let rolldiff count skill diff =
 
 let result =
     seq {
-        yield output !>3
+        //yield output !>3
         yield output (rollsingle !>5 |> toProb)
-        yield output (roll !>5 3)
+        (*yield output (roll !>5 3)
         for attr in 1..8 do
             for skill in 0..5 do
                 yield rolldiff attr !>skill 2 |> toProb 
-                |> outputName $"attr {attr} skill {skill}"
+                |> outputName $"attr {attr} skill {skill}"*)
     }
 
 let rec printMapFull map = Map.iter (printfn "%s %A") map

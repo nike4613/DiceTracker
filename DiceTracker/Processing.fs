@@ -248,6 +248,9 @@ module Processing =
         let bindResultMap : UnboundNormalResults -> BoundNormalResults = rebuildMap bindSeq
         let bindBoolResultMap : UnboundBoolResults -> BoundBoolResults = rebuildMap bindBoolSeq
 
+        let bindReduceMap = rebuildMap (bindSeq >> reduceBoundSeq)
+        let bindReduceBoolMap = rebuildMap (bindBoolSeq >> reduceBoundBoolSeq)
+
         let cartProd (args: 'a seq seq) = //: 'a seq seq =
             args
             |> Seq.fold 
@@ -263,26 +266,60 @@ module Processing =
             | ArgValue i -> List.item i args
             | ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack (buildCallFixInt args) r
 
-        and buildCallFixBool (args: _ list) (BoolResultResult.Unpack r) =
+        let rec buildCallFixBool (args: _ list) (BoolResultResult.Unpack r) =
             BoolResultResult.repack (buildCallFixInt args) (buildCallFixBool args) r
 
-        and buildCallFixProb (args: _ list) (ProbabilityResultValue.Unpack r) =
+        let rec buildCallFixProb (args: _ list) (ProbabilityResultValue.Unpack r) =
             ProbabilityResultValue.repack (buildCallFixBool args) (buildCallFixProb args) r
 
-        // Builds a function call based on the provided fixImpl, doing *no* binding processing. That is up to the caller.
         let buildCallImpl fixImpl (args: UnboundNormalResults list) funcVal =
-            let args = args |> Seq.map Map.toSeq |> Seq.map (Seq.map <| tmap1 fst) |> cartProd |> Seq.map Seq.toList |> Seq.cache
+            // Collects the bindings for each of the arguments into a map of int->(binding list)
+            let collectArgBindings args =
+                let joinedMap =
+                    args
+                    |> Seq.collect (fun ((_, b), _) -> b |> Map.toSeq)
+                    |> Seq.fold (fun m (i, v) ->
+                        Map.change i (fun vs -> v::(Option.defaultValue [] vs) |> Some) m) Map.empty
+                args |> Seq.map (fun ((k, _), v) -> k,v), joinedMap
+
+            // Returns true if all elements in each of the binding lists are equivalent.
+            let filterArgBindings map =
+                Map.forall (fun _ ->
+                    List.fold
+                        (fun (b, p) v ->
+                            b && (p |> Option.map (fun p -> reduceResult p = reduceResult v) |> Option.defaultValue true), Some v)
+                        (true, None) >> fst) map
+
+            // Selects only the first element in a binding list.
+            let selectRealArgBindings map =
+                Map.map (fun _ -> List.head >> reduceResult) map
+
+            let args = 
+                args 
+                |> Seq.map Map.toSeq 
+                // Get the cartesian product of the arguments; so one element for each possible combination
+                |> cartProd 
+                // Collect the arguments' bindings
+                |> Seq.map collectArgBindings
+                // Filter to only arguments with matching bindings
+                |> Seq.filter (fun (_, m) -> filterArgBindings m)
+                // Materialize the actual value list and select a single binding value
+                |> Seq.map (tmap Seq.toList selectRealArgBindings)
+                |> Seq.cache
             funcVal
             |> Map.toSeq
+            // Cartesian product with the possible argument values
             |> Seq.allPairs args
-            |> Seq.map (fun (args, (value, prob)) -> args |> List.map fst, (value, prob), List.fold (fun a b -> PProd(a, snd b)) prob args)
-            |> Seq.map (fun (args, (value, _), prob) -> (fixImpl args value, Map.empty), buildCallFixProb args prob)
+            // Remap stuff to be more easily used by fixImpl and buildCallFixProb
+            |> Seq.map (fun ((args, binds), (value, prob)) -> args |> List.map fst, value, List.fold (fun a b -> PProd(a, snd b)) prob args, binds)
+            // Perform the actual fixups, returning an actual set of possibilities
+            |> Seq.map (fun (args, value, prob, binds) -> (fixImpl args value, binds), buildCallFixProb args prob)
             |> buildMap
 
-        let buildCallInt (args: UnboundNormalResults list) (funcVal: BoundNormalResults) =
+        let buildCallInt (args: UnboundNormalResults list) (funcVal: BoundNormalResults) : UnboundNormalResults =
             buildCallImpl buildCallFixInt args funcVal
 
-        let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) =
+        let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) : UnboundBoolResults =
             buildCallImpl buildCallFixBool args funcVal
             
         type FunctionCache = Map<Function, BoundNormalResults> * Map<BoolFunction, BoundBoolResults>
@@ -411,10 +448,10 @@ module Processing =
 
         and maybeAnalyzeFuncInt cache (func: Function) =
             findOrAdd1 func (fun func cache ->
-                analyze Map.empty cache func.value |> tmap1 bindResultMap |> tmap1 reduceBoundResultMap) cache
+                analyze Map.empty cache func.value |> tmap1 bindReduceMap) cache
         and maybeAnalyzeFuncBool cache (func: BoolFunction) =
             findOrAdd2 func (fun func cache ->
-                analyzeBool Map.empty cache func.value |> tmap1 bindBoolResultMap |> tmap1 reduceBoundBoolResultMap) cache
+                analyzeBool Map.empty cache func.value |> tmap1 bindReduceBoolMap) cache
             
         let processWithName (cache: FunctionCache) name prob =
             let (result, cache) = analyze Map.empty cache prob

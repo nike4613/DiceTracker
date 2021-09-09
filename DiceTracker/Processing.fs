@@ -335,9 +335,9 @@ module Processing =
         let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) : UnboundBoolResults =
             buildCallImpl buildCallFixBool args funcVal
 
-        let analyzeBinop analyze reducer bindings cache op a b =
-            let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
-            let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
+        let analyzeBinop analyze reducer cache op a b =
+            let (ra, cache) = analyze cache a |> tmap1 Map.toSeq
+            let (rb, cache) = analyze cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
             |> Seq.map (fun (((k1, b1), v1), ((k2, b2), v2)) -> (k1, v1), (k2, v2), b1, b2)
             |> Seq.filter (fun (_, _, a, b) -> bindingsMatch a b)
@@ -358,16 +358,16 @@ module Processing =
             level expressions, the end of evaluation of that expression.
         *)
 
-        let analyzeCond analyze analyzeBool bindings cache cond t f =
+        let analyzeCond analyze analyzeBool cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)
             let onlyIfFalse cond v = PCond(cond, Prob.never, v)
-            let result, cache = analyzeBool bindings cache cond
+            let result, cache = analyzeBool cache cond
             let result, cache = 
                 result |> Map.toSeq
                 |> reduceUnboundBoolSeq
                 |> Seq.mapFold (fun cache ((r, b), v) ->
-                    let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
-                    let rf, cache = analyze abindings cache f |> tmap1 Map.toSeq
+                    let rt, cache = analyze cache t |> tmap1 Map.toSeq
+                    let rf, cache = analyze cache f |> tmap1 Map.toSeq
                     let rt = 
                         rt
                         |> Seq.map (tmap2 (onlyIfTrue r))
@@ -380,9 +380,9 @@ module Processing =
                 ) cache
             result |> Seq.concat |> buildMap, cache
 
-        let analyzeBinding analyze analyzeBody bindings cache i value expr =
-            let value, cache = analyze bindings cache value
-            let result, cache = analyzeBody Map.empty cache expr
+        let analyzeBinding analyze analyzeBody cache i value expr =
+            let value, cache = analyze cache value
+            let result, cache = analyzeBody cache expr
 
             Seq.allPairs (Map.toSeq value) (Map.toSeq result)
             // first is binding, then is result
@@ -413,8 +413,8 @@ module Processing =
                 v, (fst cache, Map.add key v (snd cache))
 
         // TODO: do we even need the bindings argument now?
-        let rec analyze bindings cache value : UnboundNormalResults * FunctionCache =
-            let binop = analyzeBinop analyze reduceUnboundSeq bindings cache
+        let rec analyze cache value : UnboundNormalResults * FunctionCache =
+            let binop = analyzeBinop analyze reduceUnboundSeq cache
             match value with
             | Number n -> Map.add (IntValue n, Map.empty) Prob.always Map.empty, cache
             | Argument i -> Map.add (ArgValue i, Map.empty) Prob.always Map.empty, cache
@@ -423,19 +423,19 @@ module Processing =
             | Difference(a, b) -> binop RDiff a b
             | Multiply(a, b) -> binop RMul a b
             | Divide(a, b) -> binop RDiv a b
-            | Condition(cond, t, f) -> analyzeCond analyze analyzeBool bindings cache cond t f
+            | Condition(cond, t, f) -> analyzeCond analyze analyzeBool cache cond t f
 
             | FunctionCall(func, args) ->
                 let func, cache = maybeAnalyzeFuncInt cache func
-                let args, cache = args |> List.mapFold (analyze bindings) cache
+                let args, cache = args |> List.mapFold analyze cache
                 buildCallInt args func, cache
 
-            | Binding(i, value, expr) -> analyzeBinding analyze analyze bindings cache i value expr
+            | Binding(i, value, expr) -> analyzeBinding analyze analyze cache i value expr
 
             | BoundValue i -> Map.add (RBinding i, Map.empty) Prob.always Map.empty, cache
 
-        and analyzeBool bindings cache value : UnboundBoolResults * FunctionCache =
-            let binop analyze = analyzeBinop analyze reduceUnboundBoolSeq bindings cache
+        and analyzeBool cache value : UnboundBoolResults * FunctionCache =
+            let binop analyze = analyzeBinop analyze reduceUnboundBoolSeq cache
             match value with
             | Literal b -> Map.add (BoolValue b, Map.empty) Prob.always Map.empty, cache
             | Equals(a, b) -> binop analyze REquals a b
@@ -445,31 +445,31 @@ module Processing =
             | GreaterThanEqual(a, b) -> binop analyze RGte a b
             | LessThanEqual(a, b) -> binop analyze RLte a b
             | BoolNot b ->
-                analyzeBool bindings cache b 
+                analyzeBool cache b 
                 |> tmap1 Map.toSeq
                 |> tmap1 (Seq.map (fun ((k, b), v) -> (RNot k, b), v))
                 |> tmap1 reduceUnboundBoolSeq
                 |> tmap1 buildMap
             | BoolAnd(a, b) -> binop analyzeBool RAnd a b
             | BoolOr(a, b) -> binop analyzeBool ROr a b
-            | BoolCondition(cond, t, f) -> analyzeCond analyzeBool analyzeBool bindings cache cond t f
+            | BoolCondition(cond, t, f) -> analyzeCond analyzeBool analyzeBool cache cond t f
 
             | BoolFunctionCall(func, args) ->
                 let func, cache = maybeAnalyzeFuncBool cache func
-                let args, cache = args |> List.mapFold (analyze bindings) cache
+                let args, cache = args |> List.mapFold analyze cache
                 buildCallBool args func, cache
 
-            | BoolBinding(i, value, expr) -> analyzeBinding analyze analyzeBool bindings cache i value expr
+            | BoolBinding(i, value, expr) -> analyzeBinding analyze analyzeBool cache i value expr
 
         and maybeAnalyzeFuncInt cache (func: Function) =
             findOrAdd1 func (fun func cache ->
-                analyze Map.empty cache func.value |> tmap1 bindReduceMap) cache
+                analyze cache func.value |> tmap1 bindReduceMap) cache
         and maybeAnalyzeFuncBool cache (func: BoolFunction) =
             findOrAdd2 func (fun func cache ->
-                analyzeBool Map.empty cache func.value |> tmap1 bindReduceBoolMap) cache
+                analyzeBool cache func.value |> tmap1 bindReduceBoolMap) cache
             
         let processWithName (cache: FunctionCache) name prob =
-            let (result, cache) = analyze Map.empty cache prob
+            let (result, cache) = analyze cache prob
             let result =
                 result
                 |> Map.toSeq

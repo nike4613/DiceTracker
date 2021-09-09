@@ -4,6 +4,7 @@ namespace DiceTracker
 module Processing =
 
     open FSharp.Collections
+    open MathNet.Numerics
 
     module private Internal =
 
@@ -86,10 +87,9 @@ module Processing =
                 | UnpackResult.OtherBinary r -> r.values |> tmap imap imap |> r.ctor
 
         type ProbabilityResultValue =
-            | Probability of decimal
+            | Probability of BigRational
             | PSum of ProbabilityResultValue * ProbabilityResultValue
             | PProd of ProbabilityResultValue * ProbabilityResultValue
-            | PRebase of value:ProbabilityResultValue * numerator:int * denominator:int
             | PCond of BoolResultResult * ProbabilityResultValue * ProbabilityResultValue
 
         module ProbabilityResultValue = 
@@ -98,25 +98,22 @@ module Processing =
             type UnpackResult =
                 | None of Self
                 | Binary of {| ctor: Self*Self -> Self ; values: Self*Self |}
-                | Rebase of Self*int*int
                 | Cond of BoolResultResult * Self * Self
             let (|Unpack|) res =
                 match res with
                 | Probability _ -> UnpackResult.None res
                 | PSum(a, b) -> UnpackResult.Binary {| ctor = PSum ; values = a,b |}
                 | PProd(a, b) -> UnpackResult.Binary {| ctor = PProd ; values = a,b |}
-                | PRebase(v, n, d) -> UnpackResult.Rebase(v, n, d)
                 | PCond(c, t, f) -> UnpackResult.Cond(c, t, f)
             let repack bmap rmap result =
                 match result with
                 | UnpackResult.None v -> v
                 | UnpackResult.Binary dc -> dc.values |> tmap rmap rmap |> dc.ctor
-                | UnpackResult.Rebase(v, n, d) -> PRebase(rmap v, n, d)
                 | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
 
         module Prob =
-            let always = Probability 1.m
-            let never = Probability 0.m
+            let always = Probability BigRational.One
+            let never = Probability BigRational.Zero
 
         type BindingSet = Map<int, ProbabilityResultResult>
         type ProbResults<'a when 'a : comparison> = Map<'a * BindingSet, ProbabilityResultValue>
@@ -190,7 +187,6 @@ module Processing =
                 | Probability v -> Some v
                 | PSum(a, b) -> binop (+) a b
                 | PProd(a, b) -> binop (*) a b
-                | PRebase(v, n, d) -> tryGetValue v |> Option.map (fun v -> v * (decimal n) / (decimal d))
                 | PCond(c, t, f) ->
                     match tryGetValueRBool c with
                     | None -> None
@@ -204,7 +200,7 @@ module Processing =
 
         let filterImpossible seq =
             seq |> Seq.filter (function
-                | _, Probability 0.m -> false
+                | _, Probability r when r.IsZero -> false
                 | _, _ -> true)
 
         let reduceBoundSeq seq = seq |> Seq.map (tmap reduceResult reduceProb) |> filterImpossible
@@ -418,7 +414,7 @@ module Processing =
             match value with
             | Number n -> Map.add (IntValue n, Map.empty) Prob.always Map.empty, cache
             | Argument i -> Map.add (ArgValue i, Map.empty) Prob.always Map.empty, cache
-            | DieValue { size = n } -> seq { for i in 1..n -> (IntValue i, Map.empty), Probability (1.m/(decimal n)) } |> UnboundNormalResults, cache
+            | DieValue { size = n } -> seq { for i in 1..n -> (IntValue i, Map.empty), Probability (BigRational.FromIntFraction(1, n)) } |> UnboundNormalResults, cache
             | Sum(a, b) -> binop RSum a b
             | Difference(a, b) -> binop RDiff a b
             | Multiply(a, b) -> binop RMul a b
@@ -497,4 +493,4 @@ module Processing =
         |> Map
 
     /// Processes a single OutputValue into its output probabilities
-    let processOne = processOneImpl Internal.FunctionCache.empty 1 >> fun (name, b, _) -> Map.add name b Map.empty
+    let processOne = processOneImpl Internal.FunctionCache.empty 0 >> fun (name, b, _) -> Map.add name b Map.empty

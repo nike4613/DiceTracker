@@ -271,6 +271,32 @@ module Processing =
 
         let rec buildCallFixProb (args: _ list) (ProbabilityResultValue.Unpack r) =
             ProbabilityResultValue.repack (buildCallFixBool args) (buildCallFixProb args) r
+            
+        // Returns true if all elements in each of the binding lists are equivalent.
+        let checkBindingListMapMatch map =
+            Map.forall (fun _ ->
+                List.fold
+                    (fun (b, p) v ->
+                        b && (p |> Option.map (fun p -> reduceResult p = reduceResult v) |> Option.defaultValue true), Some v)
+                    (true, None) >> fst) map
+
+        let foldSeqToMapDuplicated seq =
+            Seq.fold (fun m (i, v) ->
+                Map.change i (fun vs -> v::(Option.defaultValue [] vs) |> Some) m) Map.empty seq
+
+        // Selects only the first element in a binding list.
+        let selectRealBindings map =
+            Map.map (fun _ -> List.head >> reduceResult) map
+
+        let mergeBindingsDuplicated b1 b2 =
+            Seq.append (Map.toSeq b1) (Map.toSeq b2)
+            |> foldSeqToMapDuplicated
+
+        let bindingsMatch b1 b2 =
+            mergeBindingsDuplicated b1 b2
+            |> checkBindingListMapMatch
+            
+        let probCombine a b = PProd(a, b)
 
         let buildCallImpl fixImpl (args: UnboundNormalResults list) funcVal =
             // Collects the bindings for each of the arguments into a map of int->(binding list)
@@ -278,21 +304,8 @@ module Processing =
                 let joinedMap =
                     args
                     |> Seq.collect (fun ((_, b), _) -> b |> Map.toSeq)
-                    |> Seq.fold (fun m (i, v) ->
-                        Map.change i (fun vs -> v::(Option.defaultValue [] vs) |> Some) m) Map.empty
+                    |> foldSeqToMapDuplicated
                 args |> Seq.map (fun ((k, _), v) -> k,v), joinedMap
-
-            // Returns true if all elements in each of the binding lists are equivalent.
-            let filterArgBindings map =
-                Map.forall (fun _ ->
-                    List.fold
-                        (fun (b, p) v ->
-                            b && (p |> Option.map (fun p -> reduceResult p = reduceResult v) |> Option.defaultValue true), Some v)
-                        (true, None) >> fst) map
-
-            // Selects only the first element in a binding list.
-            let selectRealArgBindings map =
-                Map.map (fun _ -> List.head >> reduceResult) map
 
             let args = 
                 args 
@@ -302,16 +315,16 @@ module Processing =
                 // Collect the arguments' bindings
                 |> Seq.map collectArgBindings
                 // Filter to only arguments with matching bindings
-                |> Seq.filter (fun (_, m) -> filterArgBindings m)
+                |> Seq.filter (fun (_, m) -> checkBindingListMapMatch m)
                 // Materialize the actual value list and select a single binding value
-                |> Seq.map (tmap Seq.toList selectRealArgBindings)
+                |> Seq.map (tmap Seq.toList selectRealBindings)
                 |> Seq.cache
             funcVal
             |> Map.toSeq
             // Cartesian product with the possible argument values
             |> Seq.allPairs args
             // Remap stuff to be more easily used by fixImpl and buildCallFixProb
-            |> Seq.map (fun ((args, binds), (value, prob)) -> args |> List.map fst, value, List.fold (fun a b -> PProd(a, snd b)) prob args, binds)
+            |> Seq.map (fun ((args, binds), (value, prob)) -> args |> List.map fst, value, List.fold (fun a b -> probCombine a (snd b)) prob args, binds)
             // Perform the actual fixups, returning an actual set of possibilities
             |> Seq.map (fun (args, value, prob, binds) -> (fixImpl args value, binds), buildCallFixProb args prob)
             |> buildMap
@@ -321,32 +334,13 @@ module Processing =
 
         let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) : UnboundBoolResults =
             buildCallImpl buildCallFixBool args funcVal
-            
-        type FunctionCache = Map<Function, BoundNormalResults> * Map<BoolFunction, BoundBoolResults>
-        module FunctionCache =
-            let empty : FunctionCache = Map.empty, Map.empty
-
-        let findOrAdd1 key mkFunc (cache : FunctionCache) =
-            match Map.tryFind key (fst cache) with
-            | Some v -> v, cache
-            | None ->
-                let (v, cache) = mkFunc key cache
-                v, (Map.add key v (fst cache), snd cache)
-        let findOrAdd2 key mkFunc (cache : FunctionCache) =
-            match Map.tryFind key (snd cache) with
-            | Some v -> v, cache
-            | None ->
-                let (v, cache) = mkFunc key cache
-                v, (fst cache, Map.add key v (snd cache))
-
-        let probCombine a b = PProd(a, b)
 
         let analyzeBinop analyze reducer bindings cache op a b =
             let (ra, cache) = analyze bindings cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze bindings cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
             |> Seq.map (fun (((k1, b1), v1), ((k2, b2), v2)) -> (k1, v1), (k2, v2), b1, b2)
-            |> Seq.filter (fun (_, _, a, b) -> reduceBindings a = reduceBindings b)
+            |> Seq.filter (fun (_, _, a, b) -> bindingsMatch a b)
             |> Seq.map (fun ((k1, v1), (k2, v2), b, _) -> (op (k1, k2), b), probCombine v1 v2)
             |> reducer
             |> buildMap, cache
@@ -367,17 +361,13 @@ module Processing =
         let analyzeCond analyze analyzeBool bindings cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)
             let onlyIfFalse cond v = PCond(cond, Prob.never, v)
-            // TODO: makeNewBindings doesn't actually behave; lets make it
-            let makeNewBindings pcreator cond = Map.map (fun _ -> rebuildMap <| (Seq.map <| (tmap2 <| pcreator cond)))
             let result, cache = analyzeBool bindings cache cond
             let result, cache = 
                 result |> Map.toSeq
                 |> reduceUnboundBoolSeq
                 |> Seq.mapFold (fun cache ((r, b), v) ->
-                    let tbindings = bindings |> makeNewBindings onlyIfTrue r
-                    let fbindings = bindings |> makeNewBindings onlyIfFalse r
-                    let rt, cache = analyze tbindings cache t |> tmap1 Map.toSeq
-                    let rf, cache = analyze fbindings cache f |> tmap1 Map.toSeq
+                    let rt, cache = analyze bindings cache t |> tmap1 Map.toSeq
+                    let rf, cache = analyze abindings cache f |> tmap1 Map.toSeq
                     let rt = 
                         rt
                         |> Seq.map (tmap2 (onlyIfTrue r))
@@ -390,6 +380,39 @@ module Processing =
                 ) cache
             result |> Seq.concat |> buildMap, cache
 
+        let analyzeBinding analyze analyzeBody bindings cache i value expr =
+            let value, cache = analyze bindings cache value
+            let result, cache = analyzeBody Map.empty cache expr
+
+            Seq.allPairs (Map.toSeq value) (Map.toSeq result)
+            // first is binding, then is result
+            |> Seq.map (fun (((rb, bb), pb), ((rr, br), pr)) -> (rb, pb), (rr, pr), mergeBindingsDuplicated bb br)
+            |> Seq.filter (fun (_, _, m) -> checkBindingListMapMatch m)
+            |> Seq.map (fun (a, b, m) -> a, b, selectRealBindings m)
+            // at this point the 3rd item is a merged binding list, now we just need to add 1st to it
+            |> Seq.map (fun ((rb, pb), (rr, pr), bind) -> rr, probCombine pb pr, Map.add i rb bind)
+            // rearrange into the correct shape, then we're good
+            |> Seq.map (fun (rr, p, bind) -> (rr, bind), p)
+            |> buildMap, cache
+
+        type FunctionCache = Map<Function, BoundNormalResults> * Map<BoolFunction, BoundBoolResults>
+        module FunctionCache =
+            let empty : FunctionCache = Map.empty, Map.empty
+
+        let findOrAdd1 key mkFunc (cache : FunctionCache) =
+            match Map.tryFind key (fst cache) with
+            | Some v -> v, cache
+            | None ->
+                let (v, cache) = mkFunc key cache
+                v, (Map.add key v (fst cache), snd cache)
+        let findOrAdd2 key mkFunc (cache : FunctionCache) =
+            match Map.tryFind key (snd cache) with
+            | Some v -> v, cache
+            | None ->
+                let (v, cache) = mkFunc key cache
+                v, (fst cache, Map.add key v (snd cache))
+
+        // TODO: do we even need the bindings argument now?
         let rec analyze bindings cache value : UnboundNormalResults * FunctionCache =
             let binop = analyzeBinop analyze reduceUnboundSeq bindings cache
             match value with
@@ -407,15 +430,9 @@ module Processing =
                 let args, cache = args |> List.mapFold (analyze bindings) cache
                 buildCallInt args func, cache
 
-            | Binding(i, value, expr) ->
-                let (value, cache) = analyze bindings cache value
-                analyze (Map.add i value bindings) cache expr
+            | Binding(i, value, expr) -> analyzeBinding analyze analyze bindings cache i value expr
 
-            | BoundValue i ->
-                // TODO: how do I make this correctly account for each case?
-                // ex: if a bound value is somehow tested in a condition, theneach branch
-                // should consider only the cases where that bound value is a matching value
-                Map.tryFind i bindings |> Option.get, cache
+            | BoundValue i -> Map.add (RBinding i, Map.empty) Prob.always Map.empty, cache
 
         and analyzeBool bindings cache value : UnboundBoolResults * FunctionCache =
             let binop analyze = analyzeBinop analyze reduceUnboundBoolSeq bindings cache
@@ -442,9 +459,7 @@ module Processing =
                 let args, cache = args |> List.mapFold (analyze bindings) cache
                 buildCallBool args func, cache
 
-            | BoolBinding(i, value, expr) ->
-                let (value, cache) = analyze bindings cache value
-                analyzeBool (Map.add i value bindings) cache expr
+            | BoolBinding(i, value, expr) -> analyzeBinding analyze analyzeBool bindings cache i value expr
 
         and maybeAnalyzeFuncInt cache (func: Function) =
             findOrAdd1 func (fun func cache ->

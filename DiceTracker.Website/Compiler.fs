@@ -47,30 +47,84 @@ module Compiler =
 
     let basicDependencies = 
         [
-            "DiceTracker"
             "FSharp.Core"
+            "Microsoft.CSharp"
             "mscorlib"
             "netstandard"
             "System"
+            "System.Buffers"
             "System.Core"
-            "System.Runtime"
+            "System.Collections"
+            "System.Data"
+            "System.Data.Common"
+            "System.Diagnostics.Debug"
+            "System.Diagnostics.Tools"
+            "System.Diagnostics.Tracing"
+            "System.IO"
+            "System.Linq"
+            "System.Memory"
+            "System.Net"
+            "System.Net.Requests"
+            "System.Net.WebClient"
+            "System.Numerics"
             "System.Private.CoreLib"
+            "System.Runtime"
+            "System.Runtime.Numerics"
+            "System.Runtime.Extensions"
+            "System.ValueTuple"
+
+            "MathNet.Numerics"
+            "MathNet.Numerics.FSharp"
+            "DiceTracker"
         ]
 
     let mkOptions (checker: FSharpChecker) outFile =
-        checker.GetProjectOptionsFromCommandLineArgs(project, [|
+        (*{*) checker.GetProjectOptionsFromCommandLineArgs(project, [|
+            yield "-o:" + outFile
+            yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:{libPath}{s}.dll")
             yield! [|
                 "--simpleresolution"
                 "--optimize-"
                 "--noframework"
                 "--fullpaths"
+                //$"--lib:{libPath}"
                 "--warn:3"
                 "--target:library"
+                "--deterministic+"
+                "--targetprofile:netcore"
+                "--nocopyfsharpcore"
+                "--warnaserror:3239"
+                "--platform:anycpu"
+                "--define:DEBUG"
+                "--define:TRACE"
+                #if NET
+                "--define:NET"
+                #endif
+                #if NETCOREAPP
+                "--define:NETCOREAPP"
+                #endif
+                #if NET6_0
+                "--define:NET6_0"
+                #endif
+                #if NET5_0
+                "--define:NET5_0"
+                #endif
+                #if NET5_0_OR_GREATER
+                "--define:NET5_0_OR_GREATER"
+                #endif
+                #if NET6_0_OR_GREATER
+                "--define:NET6_0_OR_GREATER"
+                #endif
+                "--define:NETCOREAPP1_0_OR_GREATER"
+                "--define:NETCOREAPP1_1_OR_GREATER"
+                "--define:NETCOREAPP2_0_OR_GREATER"
+                "--define:NETCOREAPP2_1_OR_GREATER"
+                "--define:NETCOREAPP2_2_OR_GREATER"
+                "--define:NETCOREAPP3_0_OR_GREATER"
+                "--define:NETCOREAPP3_1_OR_GREATER"
                 inFile
             |]
-            yield! basicDependencies |> List.toArray |> Array.map (fun s -> $"-r:{libPath}{s}.dll")
-            yield "-o:" + outFile
-        |])
+        |]) //with SourceFiles = [|inFile|] }
 
     let create source = async {
         let checker = FSharpChecker.Create(keepAssemblyContents = false, suggestNamesForErrors = true)
@@ -80,8 +134,11 @@ module Compiler =
         // start a check on creation so that we're ready to go when we finish initializing
         let! checkProjRes = checker.ParseAndCheckProject(options)
         let! (parseRes, checkRes) = checker.GetBackgroundCheckResultsForFileInProject(inFile, options)
-        let! (diagnostics, code, assembly) = checker.CompileToDynamicAssembly([parseRes.ParseTree], "output", 
-                                                basicDependencies, None, noframework = true)
+        let! (diagnostics, code, assembly) = checker.CompileToDynamicAssembly(options.OtherOptions, None, "preCompile")
+
+        printfn "%i %A" code assembly
+        diagnostics |> Seq.iter (printfn "%A")
+
         return {
             checker = checker
             options = options
@@ -98,8 +155,8 @@ module Compiler =
     let resultExpectedTypeOne = "DiceTracker.Probability.OutputValue"
     let resultExpectedTypeMany = "System.Collections.Generic.IEnumerable<" + resultExpectedTypeOne + ">"
 
-    let findResultMember (checkRes: FSharpCheckFileResults) =
-        match checkRes.PartialAssemblySignature.FindEntityByPath ["Dice"] with
+    let findResultMember (asmSig: FSharpAssemblySignature) =
+        match asmSig.FindEntityByPath ["Dice"] with
         | None -> None
         | Some ent ->
             ent.MembersFunctionsAndValues
@@ -125,26 +182,29 @@ type Compiler with
 
             let options = Compiler.mkOptions comp.checker outfile
 
-            printfn "Starting compilation"
+            printfn "Starting compilation %A" options
 
-            let source = SourceText.ofString source
-            let! parseResult = comp.checker.ParseFile(inFile, source, FSharpParsingOptions.Default, cache=false)
-            let! checkResult = comp.checker.CheckFileInProject(parseResult, inFile, comp.sequence, source, options)
-            match checkResult with
-            | FSharpCheckFileAnswer.Aborted -> return { comp with status = Failed <| Choice2Of2 ["File check aborted"] }
-            | FSharpCheckFileAnswer.Succeeded checkResult ->
+            let! projectCheckResult = comp.checker.ParseAndCheckProject(options, "checkProject")
 
-            if isFailure checkResult.Diagnostics then return { comp with status = Failed <| Choice1Of2 checkResult.Diagnostics } else
+            let! parseResult, checkResult = comp.checker.GetBackgroundCheckResultsForFileInProject(inFile, options, "getParseResults")
+            
+            projectCheckResult.Diagnostics |> Seq.iter (printfn "%A")
+
+            if isFailure projectCheckResult.Diagnostics then return { comp with status = Failed <| Choice1Of2 projectCheckResult.Diagnostics } else
                 
             printfn "Finished first check."
 
-            match findResultMember checkResult with
+            match findResultMember projectCheckResult.AssemblySignature with
             | None -> return { comp with status = Failed <| Choice2Of2 ["No result member found"] }
             | Some minfo ->
 
-            let! errors, errCode, assembly = comp.checker.CompileToDynamicAssembly([parseResult.ParseTree], $"output{comp.sequence}", basicDependencies, None, noframework=true)
+            // OtherOptions contains all of our actual options
+            let! errors, errCode, assembly = comp.checker.CompileToDynamicAssembly(options.OtherOptions, None, "compile")
             sw.Stop()
             printfn "Compile took %A" sw.Elapsed
+
+            printfn "%i %A" errCode assembly
+            errors |> Seq.iter (printfn "%A")
 
             if isFailure errors || errCode <> 0 then return { comp with status = Failed <| Choice1Of2 errors } else
             match assembly with
@@ -161,5 +221,6 @@ type Compiler with
             return 
                 { comp with
                     sequence = comp.sequence + 1
-                    status = Succeeded(assembly, resultMember, errors) }
+                    status = Succeeded(assembly, resultMember, errors)
+                    mainFile = FileResults.ofRes(parseResult, checkResult) }
         }

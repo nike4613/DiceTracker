@@ -43,7 +43,9 @@ let downloadAssets (http: HttpClient) assets = async {
 
 let update (js: IJSRuntime) (http: HttpClient) message model =
     match message with
-    | StartInit -> Initializing "Downloading libraries...", Cmd.OfJS.either js "eval" [|"MONO.loaded_files"|] GotAssetList Error
+    | StartInit -> 
+        Trace.Listeners.Add (new ConsoleTraceListener()) |> ignore
+        Initializing "Downloading libraries...", Cmd.OfJS.either js "eval" [|"MONO.loaded_files"|] GotAssetList Error
     | GotAssetList assets -> model, Cmd.OfAsync.either (downloadAssets http) assets (fun () -> InitCompiler) Error
     | InitCompiler ->
         Initializing "Initializing compiler...",

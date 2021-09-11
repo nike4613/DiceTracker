@@ -2,50 +2,47 @@
 module Evaluation
 
 open XPlot.Plotly
-open FSharp.Compiler.Interactive.Shell
-open System.IO
-open FSharp.Compiler.Diagnostics
 open DiceTracker
-open System
 open System.Reflection
-open FSharp.Compiler.CodeAnalysis
-open FSharp.Compiler.Text
+    
+let stackedLayout = Layout(barmode = "stack")
 
-let private config = FsiEvaluationSession.GetDefaultConfiguration()
-// specify fsi.exe here so that it doesn't try to call Process.*
-let private args = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-" |]
-
-let private checkWarnings (warnings: FSharpDiagnostic seq) =
-    if not (Seq.isEmpty warnings) then
-        warnings
-        |> Seq.map (fun w -> $"[{w.StartLine},{w.StartColumn}-{w.EndLine},{w.EndColumn}] {w.Message}")
-        |> Seq.reduce (fun a b -> a + "\n" + b)
-        |> failwith
-
-let private checkResult result =
-    match result with
-    | Choice1Of2 _ -> ()
-    | Choice2Of2 exn -> failwith $"exception {exn}"
-
-let private checkEval (result, warnings) = 
-    checkWarnings warnings
-    checkResult result
-
-type EvaluationResult =
-    | Success of PlotlyChart
-    | Errors of FSharpDiagnostic seq
-    | Exception of exn
-    | Message of string
-
-let checker = FSharpChecker.Create()
-
-let evaluate expr : Async<EvaluationResult> =
+let evaluate (expr: MemberInfo) =
     async {
-        printfn "evaluating %s" expr
+        printfn "evaluating %A" expr
         
-        try
-            return Message "none"
-        with
-        | ex -> return Exception ex
+        let value =
+            match expr with
+            | :? FieldInfo as f -> f.GetValue(null)
+            | :? PropertyInfo as p -> p.GetGetMethod().Invoke(null, [| |])
+            | _ -> raise (exn $"Unknown member type {expr.GetType()}")
+        let results =
+            match value with
+            | :? OutputValue as single -> Processing.processOne single
+            | :? seq<OutputValue> as multi -> Processing.processMany multi
+            | _ -> raise (exn $"Unknown value type {value.GetType()}")
+
+        let bars = 
+            results
+            |> Map.toSeq
+            |> Seq.map (fun (a, b) -> b |> Map.toSeq |> Seq.map (fun (b, c) -> a, b, c))
+            |> Seq.concat
+            |> Seq.fold (fun m (n, i, v) -> Map.change i (fun v2 -> (n,v)::(Option.defaultValue [] v2) |> Some) m) Map.empty
+            |> Map.map (fun _ v -> List.rev v)
+            |> Map.toSeq
+            |> Seq.map (fun (i, list) ->
+                Bar(
+                    x = (list |> List.map (fun (n, _) -> n)),
+                    y = (list |> List.map (fun (_, r) -> float r)),
+                    name = string i
+                ))
+            |> Seq.toList
+
+        let chart =
+            bars
+            |> Chart.Plot
+            |> Chart.WithLayout stackedLayout
+
+        return chart
     }
 

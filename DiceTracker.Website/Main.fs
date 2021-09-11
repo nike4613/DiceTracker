@@ -8,6 +8,10 @@ open Microsoft.JSInterop
 open XPlot.Plotly
 open FSharp.Compiler.Diagnostics
 
+type Page =
+    | MessagesPage
+    | ResultsPage
+
 type Model =
     {
         compiler: Compiler
@@ -16,6 +20,9 @@ type Model =
         compilerMessages: FSharpDiagnostic seq option
         warnings: string list option
         errors: string list option
+        currentPage: Page
+        enablePageSwitching: bool
+        evaluating: bool
     }
 
 type Message =
@@ -27,6 +34,7 @@ type Message =
     | EvalJs of string
     | EvalFinished of unit
     | Error of exn
+    | SelectPage of Page
     
 let defaultSource = "module Dice\nlet result = ()"
 
@@ -38,16 +46,28 @@ let initModel compiler source =
         compilerMessages = None
         warnings = None
         errors = None
+        currentPage = MessagesPage
+        enablePageSwitching = false
+        evaluating = false
     }
 
 let update (js: IJSRuntime) message model =
     match message with
+    | SelectPage p -> { model with currentPage = p }, Cmd.none
     | UpdateText t ->  { model with source = t }, Cmd.none
     | PlotChart c -> 
-        { model with plotScript = Some (c.Id, c.GetPlottingJS()) }, Cmd.none
+        { model with
+            plotScript = Some (c.Id, c.GetPlottingJS())
+            evaluating = false
+            enablePageSwitching = true
+            currentPage = ResultsPage }, Cmd.none
     | Compile ->
         let compiler, run = model.compiler.Run model.source
-        { model with compiler = compiler }, Cmd.OfAsync.either (run >> Async.WithYield) () Compiled Error
+        { model with
+            compiler = compiler
+            currentPage = MessagesPage 
+            enablePageSwitching = false },
+        Cmd.OfAsync.either (run >> Async.WithYield) () Compiled Error
     | Compiled ({ status = Succeeded(_, Some memb, msgs) } as compiler) ->
         { model with
             compiler = compiler
@@ -78,7 +98,7 @@ let update (js: IJSRuntime) message model =
             compilerMessages = None
             warnings = None
             errors = None }, Cmd.none
-    | Evaluate memb -> { model with warnings = Some ["todo: evaluate member " + string memb] }, Cmd.none
+    | Evaluate memb -> { model with evaluating = true }, Cmd.OfAsync.either Evaluation.evaluate memb PlotChart Error
     | EvalJs script -> model, Cmd.OfJS.either js "eval" [| script |] EvalFinished Error
     | EvalFinished() -> model, Cmd.none
     | Error exn ->
@@ -109,24 +129,56 @@ let simpleMsg (severity: string) (msg: string) =
 
 let view (model: Model) dispatch =
     Main()
-        .PlotlyUrl("placeholder")
+        .PlotlyUrl(Html.DefaultPlotlySrc)
         .EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
         .Evaluate(fun _ -> dispatch Compile)
-        .Messages(concat [
-            text <|
-                match model.compiler.status with
-                | CompilerStatus.Standby -> "Ready."
-                | CompilerStatus.Running -> "Compiling..."
-                | CompilerStatus.Succeeded _ -> "Compilation finished."
-                | CompilerStatus.Failed _ -> "Compilation failed."
-            cond model.errors <| function
-                | None -> empty
-                | Some msgs -> forEach msgs (simpleMsg "Error")
-            cond model.warnings <| function
-                | None -> empty
-                | Some msgs -> forEach msgs (simpleMsg "Warning")
-            cond model.compilerMessages <| function
-                | None -> empty
-                | Some msgs -> forEach (msgs |> Seq.sortBy (fun m -> m.Severity)) (compilerMsg)
-        ])
+        .PageSelection(
+            if model.enablePageSwitching then
+                concat [
+                    button [
+                        yield on.click (fun _ -> SelectPage MessagesPage |> dispatch)
+                        if model.currentPage = MessagesPage then yield attr.disabled ()
+                    ] [ text "Messages" ]
+                    button [
+                        yield on.click (fun _ -> SelectPage ResultsPage |> dispatch)
+                        if model.currentPage = ResultsPage then yield attr.disabled ()
+                    ] [ text "Results" ]
+                ]
+            else
+                empty
+        )
+        .Status(
+            match model.compiler.status, model.evaluating with
+            | CompilerStatus.Standby, false -> "Ready."
+            | CompilerStatus.Running, false -> "Compiling..."
+            | CompilerStatus.Succeeded _, false -> "Compilation finished."
+            | CompilerStatus.Failed _, false -> "Compilation failed."
+            | _, true -> "Evaluating..."
+            |> text
+        )
+        .CurrentPage(
+            match model.currentPage with
+            | MessagesPage ->
+                Main.Messages()
+                    .Messages(concat [
+                        cond model.errors <| function
+                            | None -> empty
+                            | Some msgs -> forEach msgs (simpleMsg "Error")
+                        cond model.warnings <| function
+                            | None -> empty
+                            | Some msgs -> forEach msgs (simpleMsg "Warning")
+                        cond model.compilerMessages <| function
+                            | None -> empty
+                            | Some msgs -> forEach (msgs |> Seq.sortBy (fun m -> m.Severity)) (compilerMsg)
+                    ])
+                    .Elt()
+            | ResultsPage ->
+                match model.plotScript with
+                | Some(id, src) ->
+                    concat [
+                        div [attr.id id; attr.classes ["chart"]] []
+                        script [] [text src]
+                    ]
+                | None -> span [] [ text "No results are available" ]
+        )
         .Elt()

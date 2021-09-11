@@ -2,15 +2,22 @@
 <textarea id="editor" bind="${EditorText}"></textarea>
 <div id="controls">
     <button onclick="${Evaluate}">Evaluate</button>
+    ${PageSelection}
 </div>
-<div id="messages">
-    ${Messages}
-    <template id="CompilerMessage">
-        <a onclick="${Select}" class="compiler-message-link">
-            <div class="compiler-message ${Severity}"><b>(${StartLine},${StartColumn})-(${EndLine},${EndColumn})</b> ${Message}</div>
-        </a>
-    </template>
-    <template id="SimpleMessage">
-        <div class="compiler-message ${Severity}">${Message}</div>
-    </template>
+<div id="status">
+    ${Status}
 </div>
+${CurrentPage}
+<template id="Messages">
+    <div id="messages">
+        ${Messages}
+        <template id="CompilerMessage">
+            <a onclick="${Select}" class="compiler-message-link">
+                <div class="compiler-message ${Severity}"><b>(${StartLine},${StartColumn})-(${EndLine},${EndColumn})</b> ${Message}</div>
+            </a>
+        </template>
+        <template id="SimpleMessage">
+            <div class="compiler-message ${Severity}">${Message}</div>
+        </template>
+    </div>
+</template>

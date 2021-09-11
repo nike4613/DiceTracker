@@ -153,7 +153,7 @@ module Compiler =
         errors |> Seq.exists (fun x -> x.Severity = FSharpDiagnosticSeverity.Error)
 
     let resultExpectedTypeOne = "DiceTracker.Probability.OutputValue"
-    let resultExpectedTypeMany = "System.Collections.Generic.IEnumerable<" + resultExpectedTypeOne + ">"
+    let resultExpectedTypeMany = "Microsoft.FSharp.Collections.seq<" + resultExpectedTypeOne + ">"
 
     let findResultMember (asmSig: FSharpAssemblySignature) =
         match asmSig.FindEntityByPath ["Dice"] with

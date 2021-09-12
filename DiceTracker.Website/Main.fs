@@ -136,12 +136,12 @@ let view (model: Model) dispatch =
             if model.enablePageSwitching then
                 concat [
                     button [
-                        yield on.click (fun _ -> SelectPage MessagesPage |> dispatch)
-                        if model.currentPage = MessagesPage then yield attr.disabled ()
+                        on.click (fun _ -> SelectPage MessagesPage |> dispatch)
+                        attr.disabled (model.currentPage = MessagesPage)
                     ] [ text "Messages" ]
                     button [
-                        yield on.click (fun _ -> SelectPage ResultsPage |> dispatch)
-                        if model.currentPage = ResultsPage then yield attr.disabled ()
+                        on.click (fun _ -> SelectPage ResultsPage |> dispatch)
+                        attr.disabled (model.currentPage = ResultsPage)
                     ] [ text "Results" ]
                 ]
             else
@@ -177,7 +177,7 @@ let view (model: Model) dispatch =
                 | Some(id, src) ->
                     concat [
                         div [attr.id id; attr.classes ["chart"]] []
-                        script [] [text src]
+                        script [attr.defer true] [text src]
                     ]
                 | None -> span [] [ text "No results are available" ]
         )

@@ -147,10 +147,24 @@ module Processing =
             | ArgValue _ -> None
             | RBinding _ -> None // we specifically need to do late binding here
 
-        let rec reduceResult res =
+        let rec reduceResult1 res =
             match tryGetValueRInt res, res with
             | ValueSome i, _ -> IntValue i
-            | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult r
+            | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult1 r
+
+        let rec reduceResult res =
+            let inline binop ctor op a b =
+                match reduceResult a, reduceResult b with
+                | IntValue a, IntValue b -> IntValue (op a b)
+                | a, b -> ctor a b
+            match res with
+            | IntValue _
+            | ArgValue _
+            | RBinding _ -> res
+            | RSum(a, b) -> binop (ctor2 RSum) (+) a b
+            | RDiff(a, b) -> binop (ctor2 RDiff) (-) a b
+            | RMul(a, b) -> binop (ctor2 RMul) (*) a b
+            | RDiv(a, b) -> binop (ctor2 RDiv) (/) a b
 
         let rec tryGetValueRBool res =
             let inline binop getVal op a b = Option.map2 op (getVal a) (getVal b)
@@ -170,7 +184,7 @@ module Processing =
             | ROr(a, b) -> binop tryGetValueRBool (||) a b
             | RNot a -> tryGetValueRBool a |> Option.map not
 
-        let rec reduceBoolResult res =
+        let rec reduceBoolResult1 res =
             match tryGetValueRBool res, res with
             | ValueSome v, _ -> BoolValue v
             | _, RNot(REquals(a, b)) -> RNEquals(reduceResult a, reduceResult b)
@@ -180,8 +194,39 @@ module Processing =
             | _, RNot(RGte(a, b)) -> RLt(reduceResult a, reduceResult b)
             | _, RNot(RLte(a, b)) -> RGt(reduceResult a, reduceResult b)
             | _, RNot(RNot(a)) -> a
-            | _, BoolResultResult.Unpack r -> BoolResultResult.repack reduceResult reduceBoolResult r
+            | _, BoolResultResult.Unpack r -> BoolResultResult.repack reduceResult reduceBoolResult1 r
             
+        let rec reduceBoolResult res =
+            let inline binopb ctor op a b =
+                match reduceBoolResult a, reduceBoolResult b with
+                | BoolValue a, BoolValue b -> op a b |> BoolValue
+                | a, b -> ctor a b
+            let inline binopi ctor op a b =
+                match reduceResult a, reduceResult b with
+                | IntValue a, IntValue b -> op a b |> BoolValue
+                | a, b -> ctor a b
+            match res with
+            | BoolValue _ -> res
+            | REquals(a, b) -> binopi (ctor2 REquals) (=) a b
+            | RNEquals(a, b) -> binopi (ctor2 RNEquals) (<>) a b
+            | RGt(a, b) -> binopi (ctor2 RGt) (>) a b
+            | RLt(a, b) -> binopi (ctor2 RLt) (<) a b
+            | RGte(a, b) -> binopi (ctor2 RGte) (>=) a b
+            | RLte(a, b) -> binopi (ctor2 RLte) (<=) a b
+            | RAnd(a, b) -> binopb (ctor2 RAnd) (&&) a b
+            | ROr(a, b) -> binopb (ctor2 ROr) (||) a b
+            | RNot(REquals(a, b)) -> RNEquals(a, b) |> reduceBoolResult
+            | RNot(RNEquals(a, b)) -> REquals(a, b) |> reduceBoolResult
+            | RNot(RGt(a, b)) -> RLte(a, b) |> reduceBoolResult
+            | RNot(RLt(a, b)) -> RGte(a, b) |> reduceBoolResult
+            | RNot(RGte(a, b)) -> RLt(a, b) |> reduceBoolResult
+            | RNot(RLte(a, b)) -> RGt(a, b) |> reduceBoolResult
+            | RNot(RNot(a)) -> a |> reduceBoolResult
+            | RNot v -> 
+                match reduceBoolResult v with
+                | BoolValue b -> not b |> BoolValue
+                | a -> RNot a
+
         let reduceBindings binds =
             binds |> Map.map (fun _ v -> reduceResult v)
             

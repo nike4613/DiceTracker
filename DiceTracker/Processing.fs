@@ -136,22 +136,6 @@ module Processing =
         type UnboundBoolResults = ProbResults<BoolResultResult>
         type BoundBoolResults = CompleteProbResults<BoolResultResult>
     
-        let rec tryGetValueRInt res =
-            let inline binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
-            match res with
-            | IntValue v -> Some v
-            | RSum(a, b) -> binop (+) a b
-            | RDiff(a, b) -> binop (-) a b
-            | RMul(a, b) -> binop (*) a b
-            | RDiv(a, b) -> binop (/) a b
-            | ArgValue _ -> None
-            | RBinding _ -> None // we specifically need to do late binding here
-
-        let rec reduceResult1 res =
-            match tryGetValueRInt res, res with
-            | ValueSome i, _ -> IntValue i
-            | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult1 r
-
         let rec reduceResult res =
             let inline binop ctor op a b =
                 match reduceResult a, reduceResult b with
@@ -166,36 +150,6 @@ module Processing =
             | RMul(a, b) -> binop (ctor2 RMul) (*) a b
             | RDiv(a, b) -> binop (ctor2 RDiv) (/) a b
 
-        let rec tryGetValueRBool res =
-            let inline binop getVal op a b = Option.map2 op (getVal a) (getVal b)
-            match res with
-            | BoolValue v -> Some v
-            | REquals(a, b) -> 
-                binop tryGetValueRInt (=) a b
-                |> Option.orElseWith (fun () -> if reduceResult a = reduceResult b then Some true else None)
-            | RNEquals(a, b) ->
-                binop tryGetValueRInt (<>) a b
-                |> Option.orElseWith (fun () -> if reduceResult a = reduceResult b then Some false else None)
-            | RGt(a, b) -> binop tryGetValueRInt (>) a b
-            | RLt(a, b) -> binop tryGetValueRInt (<) a b
-            | RGte(a, b) -> binop tryGetValueRInt (>=) a b
-            | RLte(a, b) -> binop tryGetValueRInt (<=) a b
-            | RAnd(a, b) -> binop tryGetValueRBool (&&) a b
-            | ROr(a, b) -> binop tryGetValueRBool (||) a b
-            | RNot a -> tryGetValueRBool a |> Option.map not
-
-        let rec reduceBoolResult1 res =
-            match tryGetValueRBool res, res with
-            | ValueSome v, _ -> BoolValue v
-            | _, RNot(REquals(a, b)) -> RNEquals(reduceResult a, reduceResult b)
-            | _, RNot(RNEquals(a, b)) -> REquals(reduceResult a, reduceResult b)
-            | _, RNot(RGt(a, b)) -> RLte(reduceResult a, reduceResult b)
-            | _, RNot(RLt(a, b)) -> RGte(reduceResult a, reduceResult b)
-            | _, RNot(RGte(a, b)) -> RLt(reduceResult a, reduceResult b)
-            | _, RNot(RLte(a, b)) -> RGt(reduceResult a, reduceResult b)
-            | _, RNot(RNot(a)) -> a
-            | _, BoolResultResult.Unpack r -> BoolResultResult.repack reduceResult reduceBoolResult1 r
-            
         let rec reduceBoolResult res =
             let inline binopb ctor op a b =
                 match reduceBoolResult a, reduceBoolResult b with
@@ -239,20 +193,18 @@ module Processing =
             reduceBindings binds
 
         let rec reduceProb prob =
-            let rec tryGetValue p =
-                let inline binop op a b = Option.map2 op (tryGetValue a) (tryGetValue b)
-                match p with
-                | Probability v -> Some v
-                | PSum(a, b) -> binop (+) a b
-                | PProd(a, b) -> binop (*) a b
-                | PCond(c, t, f) ->
-                    match tryGetValueRBool c with
-                    | ValueNone -> None
-                    | ValueSome b -> if b then tryGetValue t else tryGetValue f
-
-            match tryGetValue prob, prob with
-            | ValueSome v, _ -> Probability v
-            | _, ProbabilityResultValue.Unpack r -> ProbabilityResultValue.repack reduceBoolResult reduceProb r
+            let inline binop ctor op a b =
+                match reduceProb a, reduceProb b with
+                | Probability a, Probability b -> op a b |> Probability
+                | a, b -> ctor a b
+            match prob with
+            | Probability _ -> prob
+            | PSum(a, b) -> binop (ctor2 PSum) (+) a b
+            | PProd(a, b) -> binop (ctor2 PProd) (*) a b
+            | PCond(c, t, f) ->
+                match reduceBoolResult c with
+                | BoolValue b -> if b then reduceProb t else reduceProb f
+                | c -> PCond(c, reduceProb t, reduceProb f)
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> RefOption.Some(match o with | RefOption.Some o -> PSum(v, o) | RefOption.None -> v)) m) Map.empty seq
 

@@ -347,15 +347,20 @@ module Processing =
             let (ra, cache) = analyze cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
-            |> Seq.map (fun (((k1, b1), v1), ((k2, b2), v2)) -> (k1, v1), (k2, v2), b1, b2)
-            |> Seq.filter (fun (_, _, a, b) -> bindingsMatch a b)
-            |> Seq.map (fun ((k1, v1), (k2, v2), b, _) -> (op (k1, k2), b), probCombine v1 v2)
+            |> Seq.map (fun (((k1, b1), v1), ((k2, b2), v2)) -> (k1, v1), (k2, v2), mergeBindingsDuplicated b1 b2)
+            |> Seq.filter (fun (_, _, m) -> checkBindingListMapMatch m)
+            |> Seq.map (fun ((k1, v1), (k2, v2), m) -> (op (k1, k2), selectRealBindings m), probCombine v1 v2)
             |> reducer
             |> buildMap, cache
 
         let inline analyzeCond analyze analyzeBool cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)
             let onlyIfFalse cond v = PCond(cond, Prob.never, v)
+            let getCondRes onlyFun r b v seq =
+                seq
+                |> Seq.map (fun ((k, b1), v) -> k, onlyFun r v, mergeBindingsDuplicated b b1)
+                |> Seq.filter (fun (_, _, m) -> checkBindingListMapMatch m)
+                |> Seq.map (fun (k, v2, m) -> (k, selectRealBindings m), probCombine v v2)
             let result, cache = analyzeBool cache cond
             let result, cache = 
                 result |> Map.toSeq
@@ -363,14 +368,8 @@ module Processing =
                 |> Seq.mapFold (fun cache ((r, b), v) ->
                     let rt, cache = analyze cache t |> tmap1 Map.toSeq
                     let rf, cache = analyze cache f |> tmap1 Map.toSeq
-                    let rt = 
-                        rt
-                        |> Seq.map (tmap2 (onlyIfTrue r))
-                        |> Seq.map (tmap2 (probCombine v))
-                    let rf = 
-                        rf
-                        |> Seq.map (tmap2 (onlyIfFalse r))
-                        |> Seq.map (tmap2 (probCombine v))
+                    let rt = getCondRes onlyIfTrue r b v rt
+                    let rf = getCondRes onlyIfFalse r b v rf
                     Seq.append rt rf, cache
                 ) cache
             result |> Seq.concat |> buildMap, cache

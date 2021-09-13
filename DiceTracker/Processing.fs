@@ -8,6 +8,18 @@ module Processing =
 
     module private Internal =
 
+        // A couple of definitions so that we can allocate less
+        type RefOption<'a> = Option<'a>
+        type Option<'a> = ValueOption<'a>
+        type 'a roption = RefOption<'a>
+        type 'a option = Option<'a>
+
+        module RefOption = Option
+        module Option = ValueOption
+
+        let inline Some x = ValueSome x
+        let None = ValueNone
+
         let swap f a b = f b a
         let inline tmap f1 f2 (a, b) = (f1 a, f2 b)
         let inline tmap1 f (a, b) = (f a, b)
@@ -15,7 +27,7 @@ module Processing =
 
         module Seq =
             let ofTuple (a, b) = seq { yield a; yield b }
-            let (|Empty|_|) seq = if Seq.isEmpty seq then Some() else None
+            let (|Empty|_|) seq = if Seq.isEmpty seq then RefOption.Some() else RefOption.None
 
         type ProbabilityResultResult =
             | IntValue of int
@@ -136,7 +148,7 @@ module Processing =
 
         let rec reduceResult res =
             match tryGetValueRInt res, res with
-            | Some i, _ -> IntValue i
+            | ValueSome i, _ -> IntValue i
             | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult r
 
         let rec tryGetValueRBool res =
@@ -159,7 +171,7 @@ module Processing =
 
         let rec reduceBoolResult res =
             match tryGetValueRBool res, res with
-            | Some v, _ -> BoolValue v
+            | ValueSome v, _ -> BoolValue v
             | _, RNot(REquals(a, b)) -> RNEquals(reduceResult a, reduceResult b)
             | _, RNot(RNEquals(a, b)) -> REquals(reduceResult a, reduceResult b)
             | _, RNot(RGt(a, b)) -> RLte(reduceResult a, reduceResult b)
@@ -189,14 +201,14 @@ module Processing =
                 | PProd(a, b) -> binop (*) a b
                 | PCond(c, t, f) ->
                     match tryGetValueRBool c with
-                    | None -> None
-                    | Some b -> if b then tryGetValue t else tryGetValue f
+                    | ValueNone -> None
+                    | ValueSome b -> if b then tryGetValue t else tryGetValue f
 
             match tryGetValue prob, prob with
-            | Some v, _ -> Probability v
+            | ValueSome v, _ -> Probability v
             | _, ProbabilityResultValue.Unpack r -> ProbabilityResultValue.repack reduceBoolResult reduceProb r
 
-        let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> Some(match o with | Some(o) -> PSum(v, o) | None -> v)) m) Map.empty seq
+        let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> RefOption.Some(match o with | RefOption.Some o -> PSum(v, o) | RefOption.None -> v)) m) Map.empty seq
 
         let filterImpossible seq =
             seq |> Seq.filter (function
@@ -278,7 +290,7 @@ module Processing =
 
         let foldSeqToMapDuplicated seq =
             Seq.fold (fun m (i, v) ->
-                Map.change i (fun vs -> v::(Option.defaultValue [] vs) |> Some) m) Map.empty seq
+                Map.change i (fun vs -> v::(RefOption.defaultValue [] vs) |> RefOption.Some) m) Map.empty seq
 
         // Selects only the first element in a binding list.
         let selectRealBindings map =
@@ -340,19 +352,6 @@ module Processing =
             |> Seq.map (fun ((k1, v1), (k2, v2), b, _) -> (op (k1, k2), b), probCombine v1 v2)
             |> reducer
             |> buildMap, cache
-
-        (*
-                For correct condition analysis, we need to be able to notice restrictions to possible values of bindings.
-                This ends up effectively requiring the same kind of algorithm that eg. the C# compiler uses to determine that
-            a value is not null in a certain piece of code because of a surrounding check. As far as I know though, all such
-            algorithms are falliable, and requires, in some cases, the programmer to insert explicit assertions that such a
-            thing is the case. For us, such failures lead to an incorrect result, and as such are not permissible.
-                Therefore, I think, we need to keep track of all restrictions on all conditionals that surround the current
-            block (that contain binding references) so that we can determine binding value restrictions when resolving them.
-            This information *also* needs to propagate to bindings referencing other bindings, and so bindings need to actually
-            be resolved *as late as possible*. This means, for functions, the end of the core function evaluation, and for top-
-            level expressions, the end of evaluation of that expression.
-        *)
 
         let analyzeCond analyze analyzeBool cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)

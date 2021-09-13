@@ -20,7 +20,8 @@ module Processing =
         let inline Some x = ValueSome x
         let None = ValueNone
 
-        let swap f a b = f b a
+        let inline ctor2 c a b = c(a, b)
+
         let inline tmap f1 f2 (a, b) = (f1 a, f2 b)
         let inline tmap1 f (a, b) = (f a, b)
         let inline tmap2 f (a, b) = (a, f b)
@@ -43,20 +44,20 @@ module Processing =
             [<RequireQualifiedAccess>]
             type UnpackResult = 
                 | None of Self
-                | Binary of {| ctor: Self*Self -> Self; values: Self*Self |}
+                | Binary of ctor:(Self->Self->Self) * val1:Self * val2:Self
             let (|Unpack|) res =
                 match res with
                 | IntValue _
                 | RBinding _
                 | ArgValue _ -> UnpackResult.None res
-                | RSum(a, b) -> UnpackResult.Binary {| ctor = RSum ; values = a,b |}
-                | RDiff(a, b) -> UnpackResult.Binary {| ctor = RDiff ; values = a,b |}
-                | RMul(a, b) -> UnpackResult.Binary {| ctor = RMul ; values = a,b |}
-                | RDiv(a, b) -> UnpackResult.Binary {| ctor = RDiv ; values = a,b |}
+                | RSum(a, b) -> UnpackResult.Binary(ctor2 RSum, a, b)
+                | RDiff(a, b) -> UnpackResult.Binary(ctor2 RDiff, a, b)
+                | RMul(a, b) -> UnpackResult.Binary(ctor2 RMul, a, b)
+                | RDiv(a, b) -> UnpackResult.Binary(ctor2 RDiv, a, b)
             let repack map result =
                 match result with
                 | UnpackResult.None v -> v
-                | UnpackResult.Binary r -> r.values |> tmap map map |> r.ctor
+                | UnpackResult.Binary(ctor, v1, v2) -> ctor (map v1) (map v2)
 
         type BoolResultResult =
             | BoolValue of bool
@@ -76,27 +77,27 @@ module Processing =
             [<RequireQualifiedAccess>]
             type UnpackResult = 
                 | None of Self
-                | Unary of {| ctor: Self -> Self ; value: Self |}
-                | SelfBinary of {| ctor: Self*Self -> Self ; values: Self*Self |}
-                | OtherBinary of {| ctor: Other*Other -> Self ; values: Other*Other |}
+                | Unary of ctor:(Self -> Self) * value:Self
+                | SelfBinary of ctor:(Self->Self->Self) * val1:Self * val2:Self
+                | OtherBinary of ctor:(Other->Other->Self) * val1:Other * val2:Other
             let (|Unpack|) res =
                 match res with
                 | BoolValue _ -> UnpackResult.None res
-                | RNot v -> UnpackResult.Unary {| ctor = RNot ; value = v |}
-                | RAnd(a, b) -> UnpackResult.SelfBinary {| ctor = RAnd ; values = a,b |}
-                | ROr(a, b) -> UnpackResult.SelfBinary {| ctor = ROr ; values = a,b |}
-                | REquals(a, b) -> UnpackResult.OtherBinary {| ctor = REquals ; values = a,b |}
-                | RNEquals(a, b) -> UnpackResult.OtherBinary {| ctor = RNEquals ; values = a,b |}
-                | RGt(a, b) -> UnpackResult.OtherBinary {| ctor = RGt ; values = a,b |}
-                | RLt(a, b) -> UnpackResult.OtherBinary {| ctor = RLt ; values = a,b |}
-                | RGte(a, b) -> UnpackResult.OtherBinary {| ctor = RGte ; values = a,b |}
-                | RLte(a, b) -> UnpackResult.OtherBinary {| ctor = RLte ; values = a,b |}
+                | RNot v -> UnpackResult.Unary(RNot, v)
+                | RAnd(a, b) -> UnpackResult.SelfBinary(ctor2 RAnd, a, b)
+                | ROr(a, b) -> UnpackResult.SelfBinary(ctor2 ROr, a, b)
+                | REquals(a, b) -> UnpackResult.OtherBinary(ctor2 REquals, a, b)
+                | RNEquals(a, b) -> UnpackResult.OtherBinary(ctor2 RNEquals, a, b)
+                | RGt(a, b) -> UnpackResult.OtherBinary(ctor2 RGt, a, b)
+                | RLt(a, b) -> UnpackResult.OtherBinary(ctor2 RLt, a, b)
+                | RGte(a, b) -> UnpackResult.OtherBinary(ctor2 RGte, a, b)
+                | RLte(a, b) -> UnpackResult.OtherBinary(ctor2 RLte, a, b)
             let repack imap bmap result = 
                 match result with
                 | UnpackResult.None v -> v
-                | UnpackResult.Unary r -> r.value |> bmap |> r.ctor
-                | UnpackResult.SelfBinary r -> r.values |> tmap bmap bmap |> r.ctor
-                | UnpackResult.OtherBinary r -> r.values |> tmap imap imap |> r.ctor
+                | UnpackResult.Unary(c, v) -> bmap v |> c
+                | UnpackResult.SelfBinary(c, a, b) -> c (bmap a) (bmap b)
+                | UnpackResult.OtherBinary(c, a, b) -> c (imap a) (imap b)
 
         type ProbabilityResultValue =
             | Probability of BigRational
@@ -109,18 +110,18 @@ module Processing =
             [<RequireQualifiedAccess>]
             type UnpackResult =
                 | None of Self
-                | Binary of {| ctor: Self*Self -> Self ; values: Self*Self |}
+                | Binary of ctor:(Self->Self->Self) * val1:Self * val2:Self
                 | Cond of BoolResultResult * Self * Self
             let (|Unpack|) res =
                 match res with
                 | Probability _ -> UnpackResult.None res
-                | PSum(a, b) -> UnpackResult.Binary {| ctor = PSum ; values = a,b |}
-                | PProd(a, b) -> UnpackResult.Binary {| ctor = PProd ; values = a,b |}
+                | PSum(a, b) -> UnpackResult.Binary(ctor2 PSum, a, b)
+                | PProd(a, b) -> UnpackResult.Binary(ctor2 PProd, a, b)
                 | PCond(c, t, f) -> UnpackResult.Cond(c, t, f)
             let repack bmap rmap result =
                 match result with
                 | UnpackResult.None v -> v
-                | UnpackResult.Binary dc -> dc.values |> tmap rmap rmap |> dc.ctor
+                | UnpackResult.Binary(c, a, b) -> c (rmap a) (rmap b)
                 | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
 
         module Prob =

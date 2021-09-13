@@ -27,7 +27,7 @@ module Processing =
 
         module Seq =
             let ofTuple (a, b) = seq { yield a; yield b }
-            let (|Empty|_|) seq = if Seq.isEmpty seq then RefOption.Some() else RefOption.None
+            let inline (|Empty|_|) seq = if Seq.isEmpty seq then RefOption.Some() else RefOption.None
 
         type ProbabilityResultResult =
             | IntValue of int
@@ -136,7 +136,7 @@ module Processing =
         type BoundBoolResults = CompleteProbResults<BoolResultResult>
     
         let rec tryGetValueRInt res =
-            let binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
+            let inline binop op a b = Option.map2 op (tryGetValueRInt a) (tryGetValueRInt b)
             match res with
             | IntValue v -> Some v
             | RSum(a, b) -> binop (+) a b
@@ -152,7 +152,7 @@ module Processing =
             | _, ProbabilityResultResult.Unpack r -> ProbabilityResultResult.repack reduceResult r
 
         let rec tryGetValueRBool res =
-            let binop getVal op a b = Option.map2 op (getVal a) (getVal b)
+            let inline binop getVal op a b = Option.map2 op (getVal a) (getVal b)
             match res with
             | BoolValue v -> Some v
             | REquals(a, b) -> 
@@ -194,7 +194,7 @@ module Processing =
 
         let rec reduceProb prob =
             let rec tryGetValue p =
-                let binop op a b = Option.map2 op (tryGetValue a) (tryGetValue b)
+                let inline binop op a b = Option.map2 op (tryGetValue a) (tryGetValue b)
                 match p with
                 | Probability v -> Some v
                 | PSum(a, b) -> binop (+) a b
@@ -281,32 +281,32 @@ module Processing =
             ProbabilityResultValue.repack (buildCallFixBool args) (buildCallFixProb args) r
             
         // Returns true if all elements in each of the binding lists are equivalent.
-        let checkBindingListMapMatch map =
+        let inline checkBindingListMapMatch map =
             Map.forall (fun _ ->
                 List.fold
                     (fun (b, p) v ->
                         b && (p |> Option.map (fun p -> reduceResult p = reduceResult v) |> Option.defaultValue true), Some v)
                     (true, None) >> fst) map
 
-        let foldSeqToMapDuplicated seq =
+        let inline foldSeqToMapDuplicated seq =
             Seq.fold (fun m (i, v) ->
                 Map.change i (fun vs -> v::(RefOption.defaultValue [] vs) |> RefOption.Some) m) Map.empty seq
 
         // Selects only the first element in a binding list.
-        let selectRealBindings map =
+        let inline selectRealBindings map =
             Map.map (fun _ -> List.head >> reduceResult) map
 
-        let mergeBindingsDuplicated b1 b2 =
+        let inline mergeBindingsDuplicated b1 b2 =
             Seq.append (Map.toSeq b1) (Map.toSeq b2)
             |> foldSeqToMapDuplicated
 
-        let bindingsMatch b1 b2 =
+        let inline bindingsMatch b1 b2 =
             mergeBindingsDuplicated b1 b2
             |> checkBindingListMapMatch
             
-        let probCombine a b = PProd(a, b)
+        let inline probCombine a b = PProd(a, b)
 
-        let buildCallImpl fixImpl (args: UnboundNormalResults list) funcVal =
+        let inline buildCallImpl fixImpl (args: UnboundNormalResults list) funcVal =
             // Collects the bindings for each of the arguments into a map of int->(binding list)
             let collectArgBindings args =
                 let joinedMap =
@@ -343,7 +343,7 @@ module Processing =
         let buildCallBool (args: UnboundNormalResults list) (funcVal: BoundBoolResults) : UnboundBoolResults =
             buildCallImpl buildCallFixBool args funcVal
 
-        let analyzeBinop analyze reducer cache op a b =
+        let inline analyzeBinop analyze reducer cache op a b =
             let (ra, cache) = analyze cache a |> tmap1 Map.toSeq
             let (rb, cache) = analyze cache b |> tmap1 Map.toSeq
             Seq.allPairs ra rb
@@ -353,7 +353,7 @@ module Processing =
             |> reducer
             |> buildMap, cache
 
-        let analyzeCond analyze analyzeBool cache cond t f =
+        let inline analyzeCond analyze analyzeBool cache cond t f =
             let onlyIfTrue cond v = PCond(cond, v, Prob.never)
             let onlyIfFalse cond v = PCond(cond, Prob.never, v)
             let result, cache = analyzeBool cache cond
@@ -375,7 +375,7 @@ module Processing =
                 ) cache
             result |> Seq.concat |> buildMap, cache
 
-        let analyzeBinding analyze analyzeBody cache i value expr =
+        let inline analyzeBinding analyze analyzeBody cache i value expr =
             let value, cache = analyze cache value
             let result, cache = analyzeBody cache expr
 
@@ -409,7 +409,7 @@ module Processing =
 
         // TODO: do we even need the bindings argument now?
         let rec analyze cache value : UnboundNormalResults * FunctionCache =
-            let binop = analyzeBinop analyze reduceUnboundSeq cache
+            let inline binop op a b = analyzeBinop analyze reduceUnboundSeq cache op a b
             match value with
             | Number n -> Map.add (IntValue n, Map.empty) Prob.always Map.empty, cache
             | Argument i -> Map.add (ArgValue i, Map.empty) Prob.always Map.empty, cache
@@ -430,7 +430,7 @@ module Processing =
             | BoundValue i -> Map.add (RBinding i, Map.empty) Prob.always Map.empty, cache
 
         and analyzeBool cache value : UnboundBoolResults * FunctionCache =
-            let binop analyze = analyzeBinop analyze reduceUnboundBoolSeq cache
+            let inline binop analyze = analyzeBinop analyze reduceUnboundBoolSeq cache
             match value with
             | Literal b -> Map.add (BoolValue b, Map.empty) Prob.always Map.empty, cache
             | Equals(a, b) -> binop analyze REquals a b

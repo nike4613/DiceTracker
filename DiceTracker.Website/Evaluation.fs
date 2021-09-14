@@ -9,6 +9,9 @@ let stackedLayout = Layout(barmode = "stack")
 
 let evaluate (expr: MemberInfo) =
     async {
+        printfn "switching to thread pool"
+        let! _ = Async.SwitchToThreadPool ()
+
         printfn "evaluating %A" expr
         
         let value =
@@ -16,12 +19,15 @@ let evaluate (expr: MemberInfo) =
             | :? FieldInfo as f -> f.GetValue(null)
             | :? PropertyInfo as p -> p.GetGetMethod().Invoke(null, [| |])
             | _ -> raise (exn $"Unknown member type {expr.GetType()}")
+
+        printfn "processing"
         let results =
             match value with
             | :? OutputValue as single -> Processing.processOne single
             | :? seq<OutputValue> as multi -> Processing.processMany multi
             | _ -> raise (exn $"Unknown value type {value.GetType()}")
 
+        printfn "got results"
         let bars = 
             results
             |> Map.toSeq

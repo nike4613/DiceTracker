@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <BlazorLinkerDescriptor Include="linker.xml" />
+    <None Include="linker.xml" />
     <Content Include="loading.html" />
     <Content Include="main.html" />
     <Folder Include="wwwroot\monaco\" />

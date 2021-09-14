@@ -17,6 +17,16 @@ module Processing =
         module RefOption = Option
         module Option = ValueOption
 
+        [<Struct>]
+        type ValOrRef<'a, 'b> =
+            | Val of value:'a
+            | Ref of reference:'b
+        module ValOrRef =
+            let inline unify vtor valOrRef =
+                match valOrRef with
+                | Val a -> vtor a
+                | Ref a -> a
+
         let inline Some x = ValueSome x
         let None = ValueNone
 
@@ -42,10 +52,11 @@ module Processing =
         module ProbabilityResultResult =
             type Self = ProbabilityResultResult
             [<RequireQualifiedAccess>]
+            [<Struct>]
             type UnpackResult = 
                 | None of Self
                 | Binary of ctor:(Self->Self->Self) * val1:Self * val2:Self
-            let (|Unpack|) res =
+            let (|Unpack|) res : UnpackResult =
                 match res with
                 | IntValue _
                 | RBinding _
@@ -54,7 +65,7 @@ module Processing =
                 | RDiff(a, b) -> UnpackResult.Binary(ctor2 RDiff, a, b)
                 | RMul(a, b) -> UnpackResult.Binary(ctor2 RMul, a, b)
                 | RDiv(a, b) -> UnpackResult.Binary(ctor2 RDiv, a, b)
-            let repack map result =
+            let repack map (result: UnpackResult) =
                 match result with
                 | UnpackResult.None v -> v
                 | UnpackResult.Binary(ctor, v1, v2) -> ctor (map v1) (map v2)
@@ -75,29 +86,29 @@ module Processing =
             type Self = BoolResultResult
             type Other = ProbabilityResultResult
             [<RequireQualifiedAccess>]
-            type UnpackResult = 
-                | None of Self
+            type Unpacked =
                 | Unary of ctor:(Self -> Self) * value:Self
                 | SelfBinary of ctor:(Self->Self->Self) * val1:Self * val2:Self
                 | OtherBinary of ctor:(Other->Other->Self) * val1:Other * val2:Other
-            let (|Unpack|) res =
+            type UnpackResult = ValOrRef<Self, Unpacked>
+            let (|Unpack|) res : UnpackResult =
                 match res with
-                | BoolValue _ -> UnpackResult.None res
-                | RNot v -> UnpackResult.Unary(RNot, v)
-                | RAnd(a, b) -> UnpackResult.SelfBinary(ctor2 RAnd, a, b)
-                | ROr(a, b) -> UnpackResult.SelfBinary(ctor2 ROr, a, b)
-                | REquals(a, b) -> UnpackResult.OtherBinary(ctor2 REquals, a, b)
-                | RNEquals(a, b) -> UnpackResult.OtherBinary(ctor2 RNEquals, a, b)
-                | RGt(a, b) -> UnpackResult.OtherBinary(ctor2 RGt, a, b)
-                | RLt(a, b) -> UnpackResult.OtherBinary(ctor2 RLt, a, b)
-                | RGte(a, b) -> UnpackResult.OtherBinary(ctor2 RGte, a, b)
-                | RLte(a, b) -> UnpackResult.OtherBinary(ctor2 RLte, a, b)
-            let repack imap bmap result = 
+                | BoolValue _ -> Val res
+                | RNot v -> Unpacked.Unary(RNot, v) |> Ref
+                | RAnd(a, b) -> Unpacked.SelfBinary(ctor2 RAnd, a, b) |> Ref
+                | ROr(a, b) -> Unpacked.SelfBinary(ctor2 ROr, a, b) |> Ref
+                | REquals(a, b) -> Unpacked.OtherBinary(ctor2 REquals, a, b) |> Ref
+                | RNEquals(a, b) -> Unpacked.OtherBinary(ctor2 RNEquals, a, b) |> Ref
+                | RGt(a, b) -> Unpacked.OtherBinary(ctor2 RGt, a, b) |> Ref
+                | RLt(a, b) -> Unpacked.OtherBinary(ctor2 RLt, a, b) |> Ref
+                | RGte(a, b) -> Unpacked.OtherBinary(ctor2 RGte, a, b) |> Ref
+                | RLte(a, b) -> Unpacked.OtherBinary(ctor2 RLte, a, b) |> Ref
+            let repack imap bmap (result: UnpackResult) = 
                 match result with
-                | UnpackResult.None v -> v
-                | UnpackResult.Unary(c, v) -> bmap v |> c
-                | UnpackResult.SelfBinary(c, a, b) -> c (bmap a) (bmap b)
-                | UnpackResult.OtherBinary(c, a, b) -> c (imap a) (imap b)
+                | Val v -> v
+                | Ref(Unpacked.Unary(c, v)) -> bmap v |> c
+                | Ref(Unpacked.SelfBinary(c, a, b)) -> c (bmap a) (bmap b)
+                | Ref(Unpacked.OtherBinary(c, a, b)) -> c (imap a) (imap b)
 
         type ProbabilityResultValue =
             | Probability of BigRational
@@ -108,21 +119,21 @@ module Processing =
         module ProbabilityResultValue = 
             type Self = ProbabilityResultValue
             [<RequireQualifiedAccess>]
-            type UnpackResult =
-                | None of Self
+            type Unpacked =
                 | Binary of ctor:(Self->Self->Self) * val1:Self * val2:Self
                 | Cond of BoolResultResult * Self * Self
-            let (|Unpack|) res =
+            type UnpackResult = ValOrRef<Self, Unpacked>
+            let (|Unpack|) res : UnpackResult =
                 match res with
-                | Probability _ -> UnpackResult.None res
-                | PSum(a, b) -> UnpackResult.Binary(ctor2 PSum, a, b)
-                | PProd(a, b) -> UnpackResult.Binary(ctor2 PProd, a, b)
-                | PCond(c, t, f) -> UnpackResult.Cond(c, t, f)
-            let repack bmap rmap result =
+                | Probability _ -> Val res
+                | PSum(a, b) -> Unpacked.Binary(ctor2 PSum, a, b) |> Ref
+                | PProd(a, b) -> Unpacked.Binary(ctor2 PProd, a, b) |> Ref
+                | PCond(c, t, f) -> Unpacked.Cond(c, t, f) |> Ref
+            let repack bmap rmap (result: UnpackResult) =
                 match result with
-                | UnpackResult.None v -> v
-                | UnpackResult.Binary(c, a, b) -> c (rmap a) (rmap b)
-                | UnpackResult.Cond(c, t, f) -> PCond(bmap c, rmap t, rmap f)
+                | Val v -> v
+                | Ref(Unpacked.Binary(c, a, b)) -> c (rmap a) (rmap b)
+                | Ref(Unpacked.Cond(c, t, f)) -> PCond(bmap c, rmap t, rmap f)
 
         module Prob =
             let always = Probability BigRational.One
@@ -136,31 +147,36 @@ module Processing =
         type UnboundBoolResults = ProbResults<BoolResultResult>
         type BoundBoolResults = CompleteProbResults<BoolResultResult>
     
-        let rec reduceResult res =
+        let rec reduceResultImpl res =
             let inline binop ctor op a b =
-                match reduceResult a, reduceResult b with
-                | IntValue a, IntValue b -> IntValue (op a b)
-                | a, b -> ctor a b
+                match reduceResultImpl a, reduceResultImpl b with
+                | Val a, Val b -> Val (op a b)
+                | a, b -> ctor (ValOrRef.unify IntValue a) (ValOrRef.unify IntValue b) |> Ref
             match res with
-            | IntValue _
+            | IntValue i -> Val i
             | ArgValue _
-            | RBinding _ -> res
+            | RBinding _ -> Ref res
             | RSum(a, b) -> binop (ctor2 RSum) (+) a b
             | RDiff(a, b) -> binop (ctor2 RDiff) (-) a b
             | RMul(a, b) -> binop (ctor2 RMul) (*) a b
             | RDiv(a, b) -> binop (ctor2 RDiv) (/) a b
 
-        let rec reduceBoolResult res =
-            let inline binopb ctor op a b =
-                match reduceBoolResult a, reduceBoolResult b with
-                | BoolValue a, BoolValue b -> op a b |> BoolValue
-                | a, b -> ctor a b
+        let reduceResult res =
+            reduceResultImpl res |> ValOrRef.unify IntValue
+
+        let rec reduceBoolResultImpl res =
+            let inline mapToCtor vtor ctor a b =
+                ctor (ValOrRef.unify vtor a) (ValOrRef.unify vtor b) |> Ref
             let inline binopi ctor op a b =
-                match reduceResult a, reduceResult b with
-                | IntValue a, IntValue b -> op a b |> BoolValue
-                | a, b -> ctor a b
+                match reduceResultImpl a, reduceResultImpl b with
+                | Val a, Val b -> op a b |> Val
+                | a, b -> mapToCtor IntValue ctor a b
+            let inline binopb ctor op a b =
+                match reduceBoolResultImpl a, reduceBoolResultImpl b with
+                | Val a, Val b -> op a b |> Val
+                | a, b -> mapToCtor BoolValue ctor a b
             match res with
-            | BoolValue _ -> res
+            | BoolValue b -> Val b
             | REquals(a, b) -> binopi (ctor2 REquals) (=) a b
             | RNEquals(a, b) -> binopi (ctor2 RNEquals) (<>) a b
             | RGt(a, b) -> binopi (ctor2 RGt) (>) a b
@@ -169,17 +185,20 @@ module Processing =
             | RLte(a, b) -> binopi (ctor2 RLte) (<=) a b
             | RAnd(a, b) -> binopb (ctor2 RAnd) (&&) a b
             | ROr(a, b) -> binopb (ctor2 ROr) (||) a b
-            | RNot(REquals(a, b)) -> RNEquals(a, b) |> reduceBoolResult
-            | RNot(RNEquals(a, b)) -> REquals(a, b) |> reduceBoolResult
-            | RNot(RGt(a, b)) -> RLte(a, b) |> reduceBoolResult
-            | RNot(RLt(a, b)) -> RGte(a, b) |> reduceBoolResult
-            | RNot(RGte(a, b)) -> RLt(a, b) |> reduceBoolResult
-            | RNot(RLte(a, b)) -> RGt(a, b) |> reduceBoolResult
-            | RNot(RNot(a)) -> a |> reduceBoolResult
+            | RNot(REquals(a, b)) -> RNEquals(a, b) |> reduceBoolResultImpl
+            | RNot(RNEquals(a, b)) -> REquals(a, b) |> reduceBoolResultImpl
+            | RNot(RGt(a, b)) -> RLte(a, b) |> reduceBoolResultImpl
+            | RNot(RLt(a, b)) -> RGte(a, b) |> reduceBoolResultImpl
+            | RNot(RGte(a, b)) -> RLt(a, b) |> reduceBoolResultImpl
+            | RNot(RLte(a, b)) -> RGt(a, b) |> reduceBoolResultImpl
+            | RNot(RNot(a)) -> a |> reduceBoolResultImpl
             | RNot v -> 
-                match reduceBoolResult v with
-                | BoolValue b -> not b |> BoolValue
-                | a -> RNot a
+                match reduceBoolResultImpl v with
+                | Val b -> not b |> Val
+                | Ref a -> RNot a |> Ref
+
+        let reduceBoolResult res =
+            reduceBoolResultImpl res |> ValOrRef.unify BoolValue
 
         let reduceBindings binds =
             binds |> Map.map (fun _ v -> reduceResult v)
@@ -192,19 +211,22 @@ module Processing =
             reduceBoolResult res,
             reduceBindings binds
 
-        let rec reduceProb prob =
+        let rec reduceProbImpl prob =
             let inline binop ctor op a b =
-                match reduceProb a, reduceProb b with
-                | Probability a, Probability b -> op a b |> Probability
-                | a, b -> ctor a b
+                match reduceProbImpl a, reduceProbImpl b with
+                | Val a, Val b -> Val (op a b)
+                | a, b -> ctor (ValOrRef.unify Probability a) (ValOrRef.unify Probability b) |> Ref
             match prob with
-            | Probability _ -> prob
+            | Probability p -> Val p
             | PSum(a, b) -> binop (ctor2 PSum) (+) a b
             | PProd(a, b) -> binop (ctor2 PProd) (*) a b
             | PCond(c, t, f) ->
-                match reduceBoolResult c with
-                | BoolValue b -> if b then reduceProb t else reduceProb f
-                | c -> PCond(c, reduceProb t, reduceProb f)
+                match reduceBoolResultImpl c with
+                | Val b -> if b then reduceProbImpl t else reduceProbImpl f
+                | Ref c -> PCond(c, reduceProbImpl t |> ValOrRef.unify Probability, reduceProbImpl f |> ValOrRef.unify Probability) |> Ref
+
+        let reduceProb prob =
+            reduceProbImpl prob |> ValOrRef.unify Probability
 
         let buildMap seq = Seq.fold (fun m (k, v) -> Map.change k (fun o -> RefOption.Some(match o with | RefOption.Some o -> PSum(v, o) | RefOption.None -> v)) m) Map.empty seq
 

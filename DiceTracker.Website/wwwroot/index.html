@@ -7,37 +7,50 @@
     <base href="/">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css">
     <link rel="stylesheet" href="index.css">
-    <!--<script src="monaco/node_modules/monaco-editor/min/vs/loader.js"></script>
+    <<script src="monaco/node_modules/monaco-editor/min/vs/loader.js"></script>
     <script>
-        require.config({ paths: { vs: "monaco/node_modules/monaco-editor/min/vs" } });
+        (() => {
+            require.config({ paths: { vs: "monaco/node_modules/monaco-editor/min/vs" } });
 
-        window.monacoReady = false;
-        window.monacoCreate = function (id, text, lang) {
-            function doCreate() {
-                return monaco.editor.create(document.getElementById(id), {
-                    value: text,
-                    language: lang
-                });
-            }
+            let monacoOnReady = undefined;
+            let monacoReady = false;
 
-            if (window.monacoReady) {
-                return Promise.resolve(doCreate());
-            } else {
-                return new Promise((res, rej) => {
-                    window.monacoOnReady = function () {
-                        res(doCreate())
-                    };
-                });
-            }
-        }
+            window.editor = {
+                create: function (elem, text, lang) {
+                    function doCreate() {
+                        return monaco.editor.create(elem, {
+                            value: text,
+                            language: lang
+                        });
+                    }
 
-        require(["vs/editor/editor.main"], function () {
-            window.monacoReady = true;
+                    if (monacoReady) {
+                        return Promise.resolve(doCreate());
+                    } else {
+                        return new Promise((res, rej) => {
+                            monacoOnReady = function () {
+                                res(doCreate())
+                            };
+                        });
+                    }
+                },
+                onChange: function (editor, invoke) {
+                    console.log("onChange called", editor, invoke);
+                    editor.onDidChangeModelContent(function (e) {
+                        console.log("editor content changed", editor, invoke, e);
+                        invoke.Invoke(editor);
+                    });
+                }
+            };
 
-            if (window.monacoOnReady)
-                window.monacoOnReady();
-        });
-    </script>-->
+            require(["vs/editor/editor.main"], function () {
+                monacoReady = true;
+
+                if (monacoOnReady)
+                    monacoOnReady();
+            });
+        })();
+    </script>
 </head>
 <body>
     <div id="main" class="main is-dark">Loading...</div>

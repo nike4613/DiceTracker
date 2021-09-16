@@ -6,44 +6,74 @@ open Bolero
 open Bolero.Html
 open Microsoft.JSInterop
 open Microsoft.AspNetCore.Components
+open Bolero.Remoting.Client
 
 type Model =
-    {
+    { 
         editor: IJSObjectReference option
         value: string
+        elemRef: HtmlRef
+        delayer: Delayer
+    }
+module Model =
+    let init = {
+        editor = None
+        value = ""
+        elemRef = HtmlRef()
+        delayer = Delayer(250)
     }
     
 let getEditorValue (editor: IJSObjectReference) = editor.InvokeAsync<string>("getValue", []).AsTask() |> Async.AwaitTask
-let setEditorValue (editor: IJSObjectReference) (value: string) = editor.InvokeVoidAsync("setValue", [value]).AsTask() |> Async.AwaitTask
+let setEditorValue (editor: IJSObjectReference) (value: string) = async {
+    do! editor.InvokeVoidAsync("setValue", [value]).AsTask() |> Async.AwaitTask
+    return value
+}
     
-type Message =
-    | CreateEditor of Editor
+type Message = 
+    private
+    | CreateEditor
     | EditorCreated of IJSObjectReference
+    | EditorTextChanged of string
+    | SetEditorText of string
+    | Error of exn
+module Message =
+    let init = CreateEditor
 
-and Editor() =
+let private view model _ =
+    div [ attr.ref model.elemRef ] []
+
+let private update (js: IJSRuntime) dispatch message model =
+    match message with
+    | CreateEditor -> model, Cmd.OfJS.perform js "editor.create" [| model.elemRef.Value; model.value; "fsharp" |] EditorCreated
+    | EditorCreated ref -> 
+        { model with editor = Some ref }, Cmd.OfJS.attempt js "editor.onChange"
+            [|
+                ref
+                Callback.ofFn (fun editor -> 
+                    model.delayer.Trigger(async {
+                        let! text = getEditorValue editor
+                        text |> EditorTextChanged |> dispatch
+                    }))
+            |] Error
+    | SetEditorText s ->
+        model, 
+        match model.editor with
+        | Some editor -> Cmd.OfAsync.either (setEditorValue editor) s EditorTextChanged Error
+        | None -> Cmd.ofMsg (EditorTextChanged s)
+    | EditorTextChanged s -> { model with value = s }, Cmd.none
+    | Error e -> 
+        eprintfn "%s" (Utils.getErrorMessage e)
+        model, Cmd.none
+
+type Editor() =
     inherit ElmishComponent<Model, Message>()
-    
-    let elemRef = HtmlRef()
 
     [<Inject>]
-    member val JSRuntime = Unchecked.defaultof<IJSRuntime> with get, set
+    member val JS = Unchecked.defaultof<IJSRuntime> with get, set
 
-    override _.ShouldRender(oldModel, newModel) =
-        oldModel.value <> newModel.value || Option.isNone newModel.editor
+    override _.View model dispatch = view model dispatch
+    member this.Update message model = update this.JS this.Dispatch message model
 
-    override this.View model dispatch =
-        match model.editor with
-        | Some editor -> setEditorValue editor model.value |> ignore
-        | None -> CreateEditor this |> dispatch
+let editor attrs model dispatch = ecomp<Editor,_,_> attrs model dispatch
 
-        div [ attr.ref elemRef ] []
-        
-let update message model =
-    match message with
-    | CreateEditor editor ->
-        let js = editor.JSRuntime
-        let cmd =
-            Cmd.OfTask.perform (fun args -> js.InvokeAsync("monacoCreate", args).AsTask())
-                [| s; "// this is the default text"; "fsharp" |] EditorCreated
-        model, cmd
-    | EditorCreated ref -> { model with editor = Some ref }, Cmd.none
+let SetText s = SetEditorText s

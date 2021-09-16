@@ -9,12 +9,12 @@ open System.Runtime.CompilerServices
 open System.Net.Http
 open System.Diagnostics
 
-type StringCallback(f: string -> unit) =
+type TypedCallback<'a>(f: 'a -> unit) =
     [<JSInvokable>]
     member _.Invoke(arg) = f arg
 
 module Callback =
-    let ofFn f = DotNetObjectReference.Create(StringCallback f)
+    let ofFn f = DotNetObjectReference.Create(TypedCallback f)
 
 module Action =
     let ofFn f = Action(f)

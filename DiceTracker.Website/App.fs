@@ -31,11 +31,11 @@ let downloadAssets (http: HttpClient) assets = async {
         let! response = http.AsyncGet uri
         let filen = Path.GetFileName uri
         use file = File.OpenWrite <| sprintf "%s%s" Compiler.libPath filen
-        let! _ = response.Content.CopyToAsync file |> Async.AwaitTask
+        do! response.Content.CopyToAsync file |> Async.AwaitTask
         return ()
     }
     let sw = Stopwatch.StartNew()
-    let! _ = assets |> Seq.map downloadFile |> Async.Parallel |> Async.Ignore
+    do! assets |> Seq.map downloadFile |> Async.Parallel |> Async.Ignore
     sw.Stop()
     printfn "Finished downloading assets in %A" sw.Elapsed
     return ()

@@ -1,13 +1,27 @@
 ﻿<script src="${PlotlyUrl}"></script>
 <textarea id="editor" bind="${EditorText}"></textarea>
-<div id="controls">
-    <button onclick="${Evaluate}">Evaluate</button>
-    ${PageSelection}
+<nav class="navbar">
+    <div class="navbar-item">
+        <label for="snippet-selector">Snippet:&nbsp;</label>
+        <div class="select">
+            <select id="snippet-selector" bind="${SelectedSnippet}">
+                ${Snippets}
+            </select>
+        </div>
+    </div>
+    <div class="navbar-item">
+        <button onclick="${Evaluate}">Evaluate</button>
+    </div>
+    <div class="navbar-item">
+        ${PageSelection}
+    </div>
+</nav>
+<div class="split-v">
+    <div id="status">
+        ${Status}
+    </div>
+    ${CurrentPage}
 </div>
-<div id="status">
-    ${Status}
-</div>
-${CurrentPage}
 <template id="Messages">
     <div id="messages">
         ${Messages}

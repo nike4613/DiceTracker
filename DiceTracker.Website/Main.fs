@@ -7,6 +7,8 @@ open Bolero.Remoting.Client
 open Microsoft.JSInterop
 open XPlot.Plotly
 open FSharp.Compiler.Diagnostics
+open System.Net
+open System.Net.Http
 
 type Page =
     | MessagesPage
@@ -23,6 +25,7 @@ type Model =
         currentPage: Page
         enablePageSwitching: bool
         evaluating: bool
+        snippetId: string
     }
 
 type Message =
@@ -35,8 +38,14 @@ type Message =
     | EvalFinished of unit
     | Error of exn
     | SelectPage of Page
+    | LoadSnippet of id:string
+    | SnippetLoaded of string
     
 let defaultSource = "module Dice\nlet result = ()"
+
+let snippets = [
+    "COG", "COG Rolling System"
+]
 
 let initModel compiler source =
     {
@@ -49,9 +58,10 @@ let initModel compiler source =
         currentPage = MessagesPage
         enablePageSwitching = false
         evaluating = false
-    }
+        snippetId = ""
+    }, Cmd.ofMsg (snippets.Head |> fst |> LoadSnippet)
 
-let update (js: IJSRuntime) message model =
+let update (js: IJSRuntime) (http: HttpClient) message model =
     match message with
     | SelectPage p -> { model with currentPage = p }, Cmd.none
     | UpdateText t ->  { model with source = t }, Cmd.none
@@ -101,6 +111,10 @@ let update (js: IJSRuntime) message model =
     | Evaluate memb -> { model with evaluating = true }, Cmd.OfAsync.either Evaluation.evaluate memb PlotChart Error
     | EvalJs script -> model, Cmd.OfJS.either js "eval" [| script |] EvalFinished Error
     | EvalFinished() -> model, Cmd.none
+    | LoadSnippet id ->
+        { model with snippetId = id },
+        Cmd.OfTask.either (fun (s: string) -> http.GetStringAsync s) (sprintf "samples/%s.fsx" id) SnippetLoaded Error
+    | SnippetLoaded text -> { model with source = text }, Cmd.none
     | Error exn ->
         eprintfn "%s" (Utils.getErrorMessage exn)
         { model with 
@@ -127,11 +141,16 @@ let simpleMsg (severity: string) (msg: string) =
         .Message(msg)
         .Elt()
 
+let snippetOption (id: string, label: string) =
+    option [attr.value id] [text label]
+
 let view (model: Model) dispatch =
     Main()
         .PlotlyUrl(Html.DefaultPlotlySrc)
         .EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
         .Evaluate(fun _ -> dispatch Compile)
+        .SelectedSnippet(model.snippetId, Action.ofValFn (LoadSnippet >> dispatch))
+        .Snippets(forEach snippets snippetOption)
         .PageSelection(
             if model.enablePageSwitching then
                 concat [

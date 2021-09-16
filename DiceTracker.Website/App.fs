@@ -51,13 +51,14 @@ let update (js: IJSRuntime) (http: HttpClient) message model =
         Initializing "Initializing compiler...",
         Cmd.OfAsync.either (Async.WithYield << Compiler.create) Main.defaultSource CompilerInitialized Error
     | CompilerInitialized compiler ->
-        Running (Main.initModel compiler Main.defaultSource), Cmd.none
+        let model, cmds = Main.initModel compiler Main.defaultSource
+        Running model, Cmd.map Message cmds
     | Message msg ->
         match model with
         | Initializing _ -> model, Cmd.none
         | InitFailed _ -> model, Cmd.none
         | Running model ->
-            let model, cmd = Main.update js msg model
+            let model, cmd = Main.update js http msg model
             Running model, Cmd.map Message cmd
     | Error exn ->
         eprintfn "%s" (Utils.getErrorMessage exn)

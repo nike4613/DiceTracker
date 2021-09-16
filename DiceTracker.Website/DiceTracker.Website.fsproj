@@ -18,7 +18,6 @@
 
   <ItemGroup>
     <Compile Include="Utilities.fs" />
-    <Compile Include="MonacoEditor.fs" />
     <Compile Include="Compiler.fs" />
     <Compile Include="Evaluation.fs" />
     <Compile Include="Main.fs" />
@@ -31,7 +30,6 @@
     <None Include="linker.xml" />
     <Content Include="loading.html" />
     <Content Include="main.html" />
-    <Folder Include="wwwroot\monaco\" />
   </ItemGroup>
 
   <ItemGroup>

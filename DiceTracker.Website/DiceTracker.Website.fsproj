@@ -6,6 +6,14 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <BoleroStripAssemblies>false</BoleroStripAssemblies>
     <BlazorWebAssemblyEnableLinking>true</BlazorWebAssemblyEnableLinking>
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+    <BlazorWebAssemblyPreserveCollationData>false</BlazorWebAssemblyPreserveCollationData>
+    <EnableAggressiveTrimming>true</EnableAggressiveTrimming>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' != 'DEBUG'">
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RunAOTCompilation>true</RunAOTCompilation>
   </PropertyGroup>
 
   <ItemGroup>

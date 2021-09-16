@@ -5,9 +5,31 @@
   
   <!-- Assemblies needed by FCS or that we want referenced, but illink would otherwise remove -->
   <assembly fullname="FSharp.Core"></assembly>
+  <assembly fullname="Microsoft.CSharp"></assembly>
+  <assembly fullname="mscorlib"></assembly>
+  <assembly fullname="netstandard"></assembly>
   <assembly fullname="System"></assembly>
+  <assembly fullname="System.Buffers"></assembly>
   <assembly fullname="System.Core"></assembly>
   <assembly fullname="System.Collections"></assembly>
+  <assembly fullname="System.Data"></assembly>
+  <assembly fullname="System.Data.Common"></assembly>
+  <assembly fullname="System.Diagnostics.Debug"></assembly>
+  <assembly fullname="System.Diagnostics.Tools"></assembly>
+  <assembly fullname="System.Diagnostics.Tracing"></assembly>
+  <assembly fullname="System.IO"></assembly>
+  <assembly fullname="System.Linq"></assembly>
+  <assembly fullname="System.Memory"></assembly>
+  <assembly fullname="System.Net"></assembly>
+  <assembly fullname="System.Net.Requests"></assembly>
+  <assembly fullname="System.Net.WebClient"></assembly>
+  <assembly fullname="System.Numerics"></assembly>
+  <assembly fullname="System.Private.CoreLib"></assembly>
   <assembly fullname="System.Runtime"></assembly>
+  <assembly fullname="System.Runtime.Numerics"></assembly>
   <assembly fullname="System.Runtime.Extensions"></assembly>
+  <assembly fullname="System.ValueTuple"></assembly>
+  <assembly fullname="MathNet.Numerics"></assembly>
+  <assembly fullname="MathNet.Numerics.FSharp"></assembly>
+  <assembly fullname="DiceTracker"></assembly>
 </linker>

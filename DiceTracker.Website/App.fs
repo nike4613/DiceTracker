@@ -22,6 +22,7 @@ type AppMessage =
     | GotAssetList of string[]
     | InitCompiler
     | CompilerInitialized of Compiler
+    | InitEditor of string option
     | Message of Main.Message
     | Error of exn
 
@@ -41,7 +42,10 @@ let downloadAssets (http: HttpClient) assets = async {
     return ()
 }
 
-let update (js: IJSRuntime) (http: HttpClient) message model =
+let sourceDuringLoad snippetId =
+    if Option.isSome snippetId then "" else Main.defaultSource
+
+let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
     match message with
     | StartInit -> 
         Trace.Listeners.Add (new ConsoleTraceListener()) |> ignore
@@ -51,8 +55,23 @@ let update (js: IJSRuntime) (http: HttpClient) message model =
         Initializing "Initializing compiler...",
         Cmd.OfAsync.either (Async.WithYield << Compiler.create) Main.defaultSource CompilerInitialized Error
     | CompilerInitialized compiler ->
-        let model, cmds = Main.initModel compiler Main.defaultSource
-        Running model, Cmd.map Message cmds
+        let snippetId = js.GetQueryParam "snippet"
+        let initSrc = sourceDuringLoad snippetId
+        let initSnippetId = defaultArg snippetId Main.defaultSnippetId
+        let model = Main.initModel compiler initSrc initSnippetId
+        Running model, Cmd.ofMsg (InitEditor snippetId)
+    | InitEditor snippetId ->
+        model,
+        Cmd.ofSub (fun dispatch ->
+            let onEdit = Main.UpdateText >> Message >> dispatch
+            js.InvokeVoid("DiceTracker.initAce", "editor",
+                sourceDuringLoad snippetId,
+                Callback.ofStr onEdit,
+                null (*autocompleter*))
+            let onSetSnip = Option.ofObj >> Option.defaultValue Main.defaultSnippetId >> Main.LoadSnippet >> Message >> dispatch
+            Option.iter onSetSnip snippetId
+            js.ListenToQueryParam("snippet", onSetSnip)
+        )
     | Message msg ->
         match model with
         | Initializing _ -> model, Cmd.none
@@ -79,7 +98,7 @@ type Application() =
     member val Http = Unchecked.defaultof<HttpClient> with get, set
 
     override this.Program =
-        let update = update this.JSRuntime this.Http
+        let update = update (this.JSRuntime :?> _) this.Http
         Program.mkProgram (fun _ -> Initializing "Initializing...", Cmd.ofMsg StartInit) update view
         //|> Program.withConsoleTrace
         |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)

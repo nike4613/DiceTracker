@@ -13,8 +13,13 @@ type TypedCallback<'a>(f: 'a -> unit) =
     [<JSInvokable>]
     member _.Invoke(arg) = f arg
 
+type StringCallback(f: string -> unit) =
+    [<JSInvokable>]
+    member _.Invoke(arg) = f arg
+
 module Callback =
     let ofFn f = DotNetObjectReference.Create(TypedCallback f)
+    let ofStr f = DotNetObjectReference.Create(StringCallback f)
 
 module Action =
     let ofFn f = Action(f)
@@ -27,6 +32,18 @@ module Async =
 module Utils =
     let getErrorMessage (exn: exn) =
         sprintf "%s\nil offsets: %A" (exn.ToString()) ((StackTrace exn).GetFrames() |> Array.map (fun e -> e.GetILOffset()) |> Array.toList)
+
+
+[<AutoOpen>]
+module JSExtensions =
+    type IJSInProcessRuntime with
+        // IUriHelper doesn't support query params yet :(
+        member this.GetQueryParam(param: string) =
+            this.Invoke<string>("DiceTracker.getQueryParam", param)
+            |> Option.ofObj
+
+        member this.ListenToQueryParam(param: string, callback: string -> unit) =
+            this.InvokeVoid("DiceTracker.listenToQueryParam", param, Callback.ofStr callback)
 
 [<Extension>]
 type HttpExtensions =

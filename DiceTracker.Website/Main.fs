@@ -40,14 +40,17 @@ type Message =
     | SelectPage of Page
     | LoadSnippet of id:string
     | SnippetLoaded of string
+    | SelectMessage of FSharpDiagnostic
     
 let defaultSource = "module Dice\nlet result = ()"
+
+let defaultSnippetId = "COG"
 
 let snippets = [
     "COG", "COG Rolling System"
 ]
 
-let initModel compiler source =
+let initModel compiler source snippet =
     {
         compiler = compiler
         source = source
@@ -59,9 +62,9 @@ let initModel compiler source =
         enablePageSwitching = false
         evaluating = false
         snippetId = ""
-    }, Cmd.ofMsg (snippets.Head |> fst |> LoadSnippet)
+    }
 
-let update (js: IJSRuntime) (http: HttpClient) message model =
+let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
     match message with
     | SelectPage p -> { model with currentPage = p }, Cmd.none
     | UpdateText t ->  { model with source = t }, Cmd.none
@@ -114,12 +117,17 @@ let update (js: IJSRuntime) (http: HttpClient) message model =
     | LoadSnippet id ->
         { model with snippetId = id },
         Cmd.OfTask.either (fun (s: string) -> http.GetStringAsync s) (sprintf "samples/%s.fsx" id) SnippetLoaded Error
-    | SnippetLoaded text -> { model with source = text }, Cmd.none
+    | SnippetLoaded text ->
+        { model with source = text },
+        Cmd.OfFunc.attempt (fun () ->
+            js.InvokeVoid("DiceTracker.setText", text)
+            js.InvokeVoid("DiceTracker.setQueryParam", "snippet", model.snippetId)
+        ) () Error
+    | SelectMessage msg ->
+        model, Cmd.OfFunc.attempt (Ace.SelectMessage js) msg Error
     | Error exn ->
         eprintfn "%s" (Utils.getErrorMessage exn)
-        { model with 
-            compilerMessages = None
-            warnings = None
+        { model with
             errors = Some [ Utils.getErrorMessage exn ] }, Cmd.none
 
 type Main = Template<"main.html">
@@ -147,7 +155,7 @@ let snippetOption (id: string, label: string) =
 let view (model: Model) dispatch =
     Main()
         .PlotlyUrl(Html.DefaultPlotlySrc)
-        .EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
+        //.EditorText(model.source, Action.ofValFn (UpdateText >> dispatch))
         .Evaluate(fun _ -> dispatch Compile)
         .SelectedSnippet(model.snippetId, Action.ofValFn (LoadSnippet >> dispatch))
         .Snippets(forEach snippets snippetOption)

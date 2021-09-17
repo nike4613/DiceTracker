@@ -182,7 +182,7 @@ type Compiler with
 
             let options = Compiler.mkOptions comp.checker outfile
 
-            printfn "Starting compilation %A" options
+            printfn "Starting compilation"
 
             let! projectCheckResult = comp.checker.ParseAndCheckProject(options, "checkProject")
 

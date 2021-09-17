@@ -9,8 +9,16 @@
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
-    <div id="main" class="main is-dark">Loading...</div>
+    <div id="main" class="main is-dark">
+        <div class="loading-wrapper">
+            <div><div style="display:inline-block"><span class="loader"></span></div> Downloading application...</div>
+        </div>
+    </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.2/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.2/ext-language_tools.js"></script>
+    <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.5.9/split.min.js"></script>-->
+    <script src="js/index.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
     <script>navigator.serviceWorker.register('service-worker.js');</script>
 </body>

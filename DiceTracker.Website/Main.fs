@@ -172,6 +172,8 @@ let simpleMsg (severity: string) (msg: string) =
         .Message(msg)
         .Elt()
 
+let spinner = div [attr.style "display:inline-block"] [span [attr.``class`` "loader"] []]
+
 let snippetOption (id: string, label: string) =
     option [attr.value id] [text label]
 
@@ -199,12 +201,11 @@ let view (model: Model) dispatch =
         )
         .Status(
             match model.compiler.status, model.evaluating with
-            | CompilerStatus.Standby, false -> "Ready."
-            | CompilerStatus.Running, false -> "Compiling..."
-            | CompilerStatus.Succeeded _, false -> "Compilation finished."
-            | CompilerStatus.Failed _, false -> "Compilation failed."
-            | _, true -> "Evaluating..."
-            |> text
+            | CompilerStatus.Standby, false -> text "Ready."
+            | CompilerStatus.Running, false -> concat [spinner; text " Compiling..."]
+            | CompilerStatus.Succeeded _, false -> text "Compilation finished."
+            | CompilerStatus.Failed _, false -> text "Compilation failed."
+            | _, true -> concat [spinner; text " Evaluating..."]
         )
         .CurrentPage(
             match model.currentPage with

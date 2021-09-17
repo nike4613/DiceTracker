@@ -17,3 +17,7 @@ body {
     min-width: 100%;
     width: 100%;
 }
+
+.ace_editor {
+    font: 12px/normal monospace;
+}

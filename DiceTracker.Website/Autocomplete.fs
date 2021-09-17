@@ -36,7 +36,8 @@ and CompletionCache(items: DeclarationListItem[], js: IJSInProcessRuntime) =
                         | ToolTipElement.None -> ()
                         | ToolTipElement.Group ttelts ->
                             for ttelt in ttelts do
-                                yield! ttelt.MainDescription |> Array.map (fun t -> t.Text)
+                                // TODO: do something fancy with tags
+                                yield ttelt.MainDescription |> Array.map (fun t -> t.Text) |> String.concat ""
                 }
                 tooltips.[index] <- Some tt
                 js.Invoke("DiceTracker.updateTooltip")
@@ -48,7 +49,6 @@ and CompletionCache(items: DeclarationListItem[], js: IJSInProcessRuntime) =
 type Autocompleter(dispatch: int * int * string * (DeclarationListItem[] -> IDisposable) -> unit, js) =
     [<JSInvokable>]
     member this.Complete(line, col, lineText) =
-        printfn "completing for %i: '%s' at %i" line lineText col
         let tcs = TaskCompletionSource<Completion[]>()
         dispatch (line, col, lineText, fun items ->
             let cache = DotNetObjectReference.Create(CompletionCache(items, js))

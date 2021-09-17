@@ -8,6 +8,7 @@ DiceTracker = {
         ace.require('ace/ext/language_tools');
         var editor = DiceTracker.editor = ace.edit(id, { mode: "ace/mode/fsharp" });
         editor.setOptions({
+            fontFamily: "monospace",
             enableBasicAutocompletion: true,
             enableLiveAutocompletion: true
         });

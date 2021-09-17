@@ -19,6 +19,7 @@
   <ItemGroup>
     <Compile Include="Utilities.fs" />
     <Compile Include="Compiler.fs" />
+    <Compile Include="Autocomplete.fs" />
     <Compile Include="Evaluation.fs" />
     <Compile Include="Ace.fs" />
     <Compile Include="Main.fs" />

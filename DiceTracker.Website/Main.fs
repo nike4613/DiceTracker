@@ -9,6 +9,8 @@ open XPlot.Plotly
 open FSharp.Compiler.Diagnostics
 open System.Net
 open System.Net.Http
+open FSharp.Compiler.EditorServices
+open System
 
 type Page =
     | MessagesPage
@@ -26,6 +28,7 @@ type Model =
         enablePageSwitching: bool
         evaluating: bool
         snippetId: string
+        lastCompleter: IDisposable option
     }
 
 type Message =
@@ -36,6 +39,9 @@ type Message =
     | Evaluate of System.Reflection.MemberInfo
     | EvalJs of string
     | EvalFinished of unit
+    | Checked of Compiler * FSharpDiagnostic[]
+    | Complete of line:int * col:int * lineText:string * callback:(DeclarationListItem[] -> IDisposable)
+    | CompletionSent of IDisposable
     | Error of exn
     | SelectPage of Page
     | LoadSnippet of id:string
@@ -62,12 +68,16 @@ let initModel compiler source snippet =
         enablePageSwitching = false
         evaluating = false
         snippetId = ""
+        lastCompleter = None
     }
 
 let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
     match message with
     | SelectPage p -> { model with currentPage = p }, Cmd.none
-    | UpdateText t ->  { model with source = t }, Cmd.none
+    | UpdateText t ->
+        { model with source = t },
+        Cmd.ofSub <| fun dispatch ->
+            model.compiler.TriggerCheck(t, Checked >> dispatch)
     | PlotChart c -> 
         { model with
             plotScript = Some (c.Id, c.GetPlottingJS())
@@ -111,6 +121,11 @@ let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
             compilerMessages = None
             warnings = None
             errors = None }, Cmd.none
+    | Checked(compiler, errors) ->
+        { model with
+            compiler = compiler
+            compilerMessages = Some (errors |> Array.toSeq) },
+        Cmd.OfFunc.attempt (Ace.SetAnnotations js) errors Error
     | Evaluate memb -> { model with evaluating = true }, Cmd.OfAsync.either Evaluation.evaluate memb PlotChart Error
     | EvalJs script -> model, Cmd.OfJS.either js "eval" [| script |] EvalFinished Error
     | EvalFinished() -> model, Cmd.none
@@ -125,6 +140,14 @@ let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
         ) () Error
     | SelectMessage msg ->
         model, Cmd.OfFunc.attempt (Ace.SelectMessage js) msg Error
+    | Complete(line, col, lineText, callback) ->
+        model.lastCompleter |> Option.iter (fun d -> d.Dispose())
+        { model with lastCompleter = None },
+        Cmd.OfFunc.either (fun (line, col, lineText) ->
+            model.compiler.Autocomplete line col lineText |> callback
+        ) (line, col, lineText) CompletionSent Error
+    | CompletionSent completer ->
+        { model with lastCompleter = Some completer }, Cmd.none
     | Error exn ->
         eprintfn "%s" (Utils.getErrorMessage exn)
         { model with
@@ -132,7 +155,7 @@ let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
 
 type Main = Template<"main.html">
 
-let compilerMsg (msg: FSharpDiagnostic) =
+let compilerMsg dispatch (msg: FSharpDiagnostic) =
     Main.CompilerMessage()
         .Severity(string msg.Severity)
         .StartLine(string msg.StartLine)
@@ -140,7 +163,7 @@ let compilerMsg (msg: FSharpDiagnostic) =
         .EndLine(string msg.EndLine)
         .EndColumn(string msg.EndColumn)
         .Message(msg.Message)
-        .Select(fun _ -> ())
+        .Select(fun _ -> SelectMessage msg |> dispatch)
         .Elt()
 
 let simpleMsg (severity: string) (msg: string) =
@@ -196,7 +219,7 @@ let view (model: Model) dispatch =
                             | Some msgs -> forEach msgs (simpleMsg "Warning")
                         cond model.compilerMessages <| function
                             | None -> empty
-                            | Some msgs -> forEach (msgs |> Seq.sortBy (fun m -> m.Severity)) (compilerMsg)
+                            | Some msgs -> forEach (msgs |> Seq.sortBy (fun m -> m.Severity)) (compilerMsg dispatch)
                     ])
                     .Elt()
             | ResultsPage ->

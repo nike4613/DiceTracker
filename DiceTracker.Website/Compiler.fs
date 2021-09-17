@@ -9,6 +9,7 @@ open FSharp.Compiler.Text
 open FSharp.Compiler.Symbols
 open FSharp.Compiler.Diagnostics
 open FSharp.Compiler.CodeAnalysis
+open FSharp.Compiler.EditorServices
 open Microsoft.JSInterop
 
 type CompilerStatus =
@@ -224,3 +225,20 @@ type Compiler with
                     status = Succeeded(assembly, resultMember, errors)
                     mainFile = FileResults.ofRes(parseResult, checkResult) }
         }
+
+    member comp.TriggerCheck (source: string, dispatch: Compiler * FSharpDiagnostic[] -> unit) =
+        checkDelay.Trigger (async {
+            let! parseRes, checkRes = comp.checker.ParseAndCheckFileInProject(inFile, 0, SourceText.ofString source, comp.options)
+            let checkRes =
+                match checkRes with
+                | FSharpCheckFileAnswer.Succeeded r -> r
+                | _ -> comp.mainFile.check
+            dispatch 
+                ({ comp with mainFile = FileResults.ofRes(parseRes, checkRes) },
+                (Array.append parseRes.Diagnostics checkRes.Diagnostics))
+        })
+
+    member comp.Autocomplete (line: int) (col: int) (lineText: string) =
+        let partialName = QuickParse.GetPartialLongNameEx(lineText, col)
+        let res = comp.mainFile.check.GetDeclarationListInfo(Some comp.mainFile.parse, line, lineText, partialName)
+        res.Items

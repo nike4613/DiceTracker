@@ -8,7 +8,8 @@ DiceTracker = {
         ace.require('ace/ext/language_tools');
         var editor = DiceTracker.editor = ace.edit(id, { mode: "ace/mode/fsharp" });
         editor.setOptions({
-            enableBasicAutocompletion: true
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: true
         });
         editor.completers = [DiceTracker.completer(complete)];
         editor.session.setValue(initText);

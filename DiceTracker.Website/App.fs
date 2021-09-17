@@ -67,7 +67,7 @@ let update (js: IJSInProcessRuntime) (http: HttpClient) message model =
             js.InvokeVoid("DiceTracker.initAce", "editor",
                 sourceDuringLoad snippetId,
                 Callback.ofStr onEdit,
-                null (*autocompleter*))
+                DotNetObjectReference.Create(Autocompleter(Main.Complete >> Message >> dispatch, js)))
             let onSetSnip = Option.ofObj >> Option.defaultValue Main.defaultSnippetId >> Main.LoadSnippet >> Message >> dispatch
             Option.iter onSetSnip snippetId
             js.ListenToQueryParam("snippet", onSetSnip)
@@ -100,7 +100,7 @@ type Application() =
     override this.Program =
         let update = update (this.JSRuntime :?> _) this.Http
         Program.mkProgram (fun _ -> Initializing "Initializing...", Cmd.ofMsg StartInit) update view
-        |> Program.withConsoleTrace
+        //|> Program.withConsoleTrace
         |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)
 #if DEBUG
         |> Program.withHotReload

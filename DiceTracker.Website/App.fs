@@ -100,7 +100,7 @@ type Application() =
     override this.Program =
         let update = update (this.JSRuntime :?> _) this.Http
         Program.mkProgram (fun _ -> Initializing "Initializing...", Cmd.ofMsg StartInit) update view
-        //|> Program.withConsoleTrace
+        |> Program.withConsoleTrace
         |> Program.withErrorHandler (fun (msg, exn) -> printfn "%s: %A" msg exn)
 #if DEBUG
         |> Program.withHotReload

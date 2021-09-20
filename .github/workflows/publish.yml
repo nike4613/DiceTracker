@@ -17,6 +17,8 @@ jobs:
           dotnet-version: '6.0.x'
           include-prerelease: true
       - run: dotnet workload install wasm-tools
+      - run: dotnet build -c Release
+        working-directory: repo/DiceTracker.Website
       - name: Build website
         run: dotnet publish -c Release --self-contained -r=browser-wasm -o "$env:GITHUB_WORKSPACE/dist/" -p:RunAOTCompilation=true -p:PublishedTrimmed=true -p:TrimMode=link
         shell: pwsh

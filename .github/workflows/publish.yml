@@ -18,7 +18,8 @@ jobs:
           include-prerelease: true
       - run: dotnet workload install wasm-tools
       - name: Build website
-        run: dotnet publish -c Release --self-contained -r=browser-wasm -o dist/ -p:RunAOTCompilation=true -p:PublishedTrimmed=true -p:TrimMode=link
+        run: dotnet publish -c Release --self-contained -r=browser-wasm -o "$env:GITHUB_WORKSPACE/dist/" -p:RunAOTCompilation=true -p:PublishedTrimmed=true -p:TrimMode=link
+        shell: pwsh
         working-directory: repo/DiceTracker.Website
       - name: Fix base path
         shell: pwsh

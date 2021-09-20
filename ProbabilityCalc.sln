@@ -11,6 +11,13 @@ Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "DiceTracker.Website", "Dice
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "DiceTracker.Website.DevServer", "DiceTracker.Website.DevServer\DiceTracker.Website.DevServer.fsproj", "{DCDD619F-538D-440B-9D95-DF76B8760331}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7C214F26-F67E-4C7A-AA7F-5DD6BAEE5464}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Actions", "Actions", "{487DF197-74AE-425F-9690-E0DAB09730FE}"
+	ProjectSection(SolutionItems) = preProject
+		.github\workflows\publish.yml = .github\workflows\publish.yml
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

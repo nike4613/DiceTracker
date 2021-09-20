@@ -1,0 +1,34 @@
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: repo/
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '6.0.x'
+          include-prerelease: true
+      - run: dotnet workload install wasm-tools
+      - name: Build website
+        run: dotnet publish repo/DiceTracker.Website/DiceTracker.Website.csproj -c Release --self-contained -r=browser-wasm -o dist/ -p:RunAOTCompilation=true -p:PublishedTrimmed=true -p:TrimMode=link
+      - name: Fix base path
+        shell: pwsh
+        working-directory: dist/wwwroot
+        run: |
+            $file = Get-Content index.html -Raw
+            $file = $file -replace 'base href="/"','base href="/DiceTracker/"'
+            $file | Set-Content index.html
+      - name: Publish to pages
+        uses: tsunematsu21/actions-publish-gh-pages@v1.0.2
+        with:
+          dir: dist/wwwroot
+          branch: gh-pages
+          token: ${{ secrets.ACCESS_TOKEN }}
